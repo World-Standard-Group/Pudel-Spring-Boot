@@ -40,14 +40,14 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Guilds Table (Discord servers with Pudel)
 CREATE TABLE IF NOT EXISTS guilds (
-    id BIGSERIAL PRIMARY KEY,
-    guild_id VARCHAR(255) NOT NULL UNIQUE,
-    guild_name VARCHAR(255) NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
     icon VARCHAR(255),
     owner_id VARCHAR(255),
-    bot_joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    member_count INTEGER,
+    joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    bot_joined_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- User-Guild Relationship (which users are in which guilds)
@@ -191,7 +191,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 -- Core table indexes
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-CREATE INDEX IF NOT EXISTS idx_guilds_guild_id ON guilds(guild_id);
 CREATE INDEX IF NOT EXISTS idx_user_guilds_user ON user_guilds(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_guilds_guild ON user_guilds(guild_id);
 

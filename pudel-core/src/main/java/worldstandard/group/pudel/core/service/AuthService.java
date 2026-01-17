@@ -119,7 +119,7 @@ public class AuthService extends BaseService {
      * Synchronize user's Discord guilds with database.
      */
     @Transactional
-    private void syncUserGuilds(String userId, List<Map<String, Object>> discordGuilds) {
+    protected void syncUserGuilds(String userId, List<Map<String, Object>> discordGuilds) {
         try {
             // Get existing user-guild associations
             List<UserGuild> existingUserGuilds = userGuildRepository.findByUserId(userId);
