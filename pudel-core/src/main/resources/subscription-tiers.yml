@@ -1,0 +1,152 @@
+# ===========================================
+# Pudel Subscription Tiers Configuration
+# ===========================================
+# This file defines the subscription tiers and their limits.
+# Hosters can customize these values based on their SaaS model.
+# Values are expandable - add more tiers as needed.
+
+subscription:
+  tiers:
+    # Free tier - default for all users/guilds
+    FREE:
+      name: "Free"
+      description: "Basic free tier with limited capacity"
+      user:
+        dialogueLimit: 1000
+        memoryLimit: 100
+      guild:
+        dialogueLimit: 5000
+        memoryLimit: 500
+      features:
+        chatbot: true
+        customPersonality: true
+        pluginLimit: -1
+        voiceEnabled: false
+        prioritySupport: false
+
+    # Tier 1 - Basic paid subscription
+    TIER_1:
+      name: "Tier 1"
+      description: "Basic paid subscription with increased limits"
+      user:
+        dialogueLimit: 1500
+        memoryLimit: 150
+      guild:
+        dialogueLimit: 7500
+        memoryLimit: 750
+      features:
+        chatbot: true
+        customPersonality: true
+        pluginLimit: -1
+        voiceEnabled: true
+        prioritySupport: false
+
+    # Tier 2 - Premium subscription
+    TIER_2:
+      name: "Tier 2"
+      description: "Premium subscription with higher limits"
+      user:
+        dialogueLimit: 2000
+        memoryLimit: 200
+      guild:
+        dialogueLimit: 10000
+        memoryLimit: 1000
+      features:
+        chatbot: true
+        customPersonality: true
+        pluginLimit: -1
+        voiceEnabled: true
+        prioritySupport: true
+
+    # Tier 3 - Enterprise subscription
+    TIER_3:
+      name: "Tier 3"
+      description: "Enterprise subscription with maximum limits"
+      user:
+        dialogueLimit: 5000
+        memoryLimit: 500
+      guild:
+        dialogueLimit: 25000
+        memoryLimit: 2500
+      features:
+        chatbot: true
+        customPersonality: true
+        pluginLimit: -1
+        voiceEnabled: true
+        prioritySupport: true
+
+    # Unlimited - for special cases (internal use, testing, etc.)
+    UNLIMITED:
+      name: "Unlimited"
+      description: "Unlimited tier for special cases"
+      user:
+        dialogueLimit: -1
+        memoryLimit: -1
+      guild:
+        dialogueLimit: -1
+        memoryLimit: -1
+      features:
+        chatbot: true
+        customPersonality: true
+        pluginLimit: -1
+        voiceEnabled: true
+        prioritySupport: true
+
+  # Default tier for new users/guilds
+  defaultTier: FREE
+
+  # Enable tier expiration (false = permanent subscriptions)
+  enableExpiration: true
+
+# ===========================================
+# Chatbot Trigger Configuration
+# ===========================================
+# Configure when Pudel should respond as a chatbot
+chatbot:
+  triggers:
+    # Respond when bot is mentioned (@Pudel)
+    onMention: true
+    # Respond in DM/PM always
+    onDirectMessage: true
+    # Respond to replies to bot's messages
+    onReplyToBot: true
+    # Keywords that trigger chatbot mode (case-insensitive)
+    keywords:
+      - "pudel"
+      - "hey pudel"
+      - "hi pudel"
+    # Channels where chatbot is always active (by channel ID)
+    alwaysActiveChannels: []
+
+  # Maximum context messages to consider for conversation
+  contextSize: 10
+
+  # Embedding configuration for memory search
+  embedding:
+    enabled: true
+    # Dimension of embedding vectors (depends on model)
+    dimension: 384
+    # Number of probes for IVFFlat search (higher = more accurate, slower)
+    ivfProbes: 10
+    # Number of lists for IVFFlat index (adjust based on data size)
+    ivfLists: 100
+
+# ===========================================
+# Memory Management Configuration
+# ===========================================
+memory:
+  # Auto-cleanup old dialogue entries when limit reached
+  autoCleanup:
+    enabled: true
+    # Keep this percentage of newest entries when cleaning
+    keepPercentage: 80
+    # Minimum age (in days) of entries to delete
+    minAgeDays: 30
+
+  # Semantic search configuration
+  semanticSearch:
+    enabled: true
+    # Similarity threshold (0.0 - 1.0)
+    minSimilarity: 0.7
+    # Maximum results to return
+    maxResults: 10

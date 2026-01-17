@@ -1,0 +1,205 @@
+spring:
+  application:
+    name: pudel-discord-bot
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/pudel
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASS:}
+    driver-class-name: org.postgresql.Driver
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# ===========================================
+# Main Config
+# Without field subscription, chatbot, memory & ollama
+# Default .yml fallback will be used
+# ===========================================
+
+pudel:
+  discord:
+    token: ${DISCORD_BOT_TOKEN:}
+    prefix: "!"
+    shards: 1
+    enable-voice: false
+    oauth:
+      clientId: ${DISCORD_CLIENT_ID:}
+      clientSecret: ${DISCORD_CLIENT_SECRET:}
+      redirectUri: ${DISCORD_REDIRECT_URI:http://localhost:5173/auth/callback}
+  database:
+    schema-name: public
+  plugin:
+    directory: plugins
+    enable-auto-discovery: true
+    enable-auto-load: true
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-key-in-production-min-32-chars}
+    expiration: ${JWT_EXPIRATION:604800000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+
+  # ===========================================
+  # Subscription Tiers Configuration
+  # Hosters can customize these values for their SaaS model
+  # ===========================================
+  subscription:
+    tiers:
+      FREE:
+        name: "Free"
+        description: "Basic free tier with limited capacity"
+        user:
+          dialogueLimit: 1000
+          memoryLimit: 100
+        guild:
+          dialogueLimit: 5000
+          memoryLimit: 500
+        features:
+          chatbot: true
+          customPersonality: true
+          pluginLimit: -1
+          voiceEnabled: false
+          prioritySupport: false
+      TIER_1:
+        name: "Tier 1"
+        description: "Basic paid subscription with increased limits"
+        user:
+          dialogueLimit: 1500
+          memoryLimit: 150
+        guild:
+          dialogueLimit: 7500
+          memoryLimit: 750
+        features:
+          chatbot: true
+          customPersonality: true
+          pluginLimit: -1
+          voiceEnabled: true
+          prioritySupport: false
+      TIER_2:
+        name: "Tier 2"
+        description: "Premium subscription with higher limits"
+        user:
+          dialogueLimit: 2000
+          memoryLimit: 200
+        guild:
+          dialogueLimit: 10000
+          memoryLimit: 1000
+        features:
+          chatbot: true
+          customPersonality: true
+          pluginLimit: -1
+          voiceEnabled: true
+          prioritySupport: true
+      UNLIMITED:
+        name: "Unlimited"
+        description: "Unlimited tier for special cases"
+        user:
+          dialogueLimit: -1
+          memoryLimit: -1
+        guild:
+          dialogueLimit: -1
+          memoryLimit: -1
+        features:
+          chatbot: true
+          customPersonality: true
+          pluginLimit: -1
+          voiceEnabled: true
+          prioritySupport: true
+    defaultTier: FREE
+    enableExpiration: true
+
+  # ===========================================
+  # Chatbot Configuration
+  # ===========================================
+  chatbot:
+    triggers:
+      onMention: true
+      onDirectMessage: true
+      onReplyToBot: true
+      keywords:
+        - "pudel"
+        - "hey pudel"
+        - "hi pudel"
+      alwaysActiveChannels: []
+    contextSize: 10
+    passiveTracking:
+      enabled: true
+      minMessageLength: 20
+      trackUrlMentions: true
+      trackDatesMentions: true
+    embedding:
+      enabled: true
+      dimension: 384
+      ivfProbes: 10
+      ivfLists: 100
+
+  # ===========================================
+  # Memory Management Configuration
+  # ===========================================
+  memory:
+    autoCleanup:
+      enabled: true
+      keepPercentage: 80
+      minAgeDays: 30
+    semanticSearch:
+      enabled: true
+      minSimilarity: 0.7
+      maxResults: 10
+
+  # ===========================================
+  # Ollama LLM Configuration
+  # Local LLM for intelligent chatbot responses
+  # ===========================================
+  ollama:
+    enabled: ${OLLAMA_ENABLED:true}
+    base-url: ${OLLAMA_URL:http://localhost:11434}
+    model: ${OLLAMA_MODEL:qwen3:8b}
+    temperature: 0.7
+    # For thinking models (qwen3, deepseek), use higher max-tokens (512-1024)
+    # because thinking consumes tokens before the actual response
+    max-tokens: 2048
+    timeout-seconds: 180
+    keep-alive: true
+    keep-alive-duration: 5m
+    context-window: 8192
+    retry-count: 2
+    streaming: true
+    # For thinking models, add /no_think to disable thinking mode for faster responses
+    # You can also use this as suffix in messages
+    disable-thinking: false
+    system-prompt-prefix: |
+      You are Pudel, a helpful and friendly Discord assistant bot.
+      You are designed to be a personal maid/secretary for Discord servers.
+      Be concise, helpful, and maintain the personality traits given to you.
+      Respond naturally like a real assistant would.
+      Keep responses short (1-3 sentences) unless asked for more detail.
+
+    # ===========================================
+    # Ollama Embedding Configuration
+    # Uses Ollama's embedding API for semantic search
+    # ===========================================
+    embedding-enabled: ${EMBEDDING_ENABLED:true}
+    embedding-model: ${EMBEDDING_MODEL:qwen3-embedding:8b}
+    # Preprocess Discord syntax (mentions, emojis, etc.) before embedding
+    embedding-preprocess-discord: true
+
+# ===========================================
+# Logger \m/
+# Define your annoying about log
+# ===========================================
+
+logging:
+  level:
+    root: INFO
+    worldstandard.group: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"

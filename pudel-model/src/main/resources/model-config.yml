@@ -1,0 +1,85 @@
+# ============================================
+# Pudel Model Configuration
+# ============================================
+# Configuration for Ollama LLM and local embeddings
+
+# Ollama Configuration (Local LLM)
+pudel:
+  ollama:
+    # Enable/disable Ollama integration
+    enabled: true
+
+    # Ollama server URL (default: http://localhost:11434)
+    base-url: http://localhost:11434
+
+    # Model to use for chat generation
+    # Recommended lightweight models:
+    # - phi3:mini (3.8B params, ~2GB VRAM)
+    # - gemma2:2b (2B params, ~1.5GB VRAM)
+    # - llama3.2:1b (1B params, ~1GB VRAM)
+    # - mistral:7b (7B params, ~4GB VRAM)
+    model: qwen3:8b
+
+    # Model to use for text analysis (intent, sentiment, entity extraction)
+    # Can use a smaller, faster model for quick analysis
+    # If not set, uses the main chat model
+    # Recommended: phi3:mini, qwen3:0.6b, or leave null to use main model
+    analysis-model: null
+
+    # Temperature (0.0-1.0)
+    # Lower = more deterministic, Higher = more creative
+    temperature: 0.7
+
+    # Maximum tokens to generate
+    max-tokens: 2048
+
+    # Request timeout in seconds
+    timeout-seconds: 180
+
+    # Keep model in memory between requests
+    keep-alive: true
+    keep-alive-duration: 5m
+
+    # Context window size
+    context-window: 8192
+
+    # Retry count on failure
+    retry-count: 2
+
+    # Enable streaming (for typing indicator)
+    streaming: true
+
+    # For thinking models, add /no_think to disable thinking mode for faster responses
+    disable-thinking: false
+
+    # Note: The system prompt is now dynamically built from guild settings including:
+    # - Nickname, Biography, Personality, Preferences, Dialogue Style
+    # - Language, Response Length, Formality, Emote Usage
+    # - Quirks (speech patterns), Topics of Interest, Topics to Avoid
+    # This base prefix is only used as fallback when no guild settings exist
+    system-prompt-prefix: |
+      You are Pudel, a helpful and friendly Discord assistant bot.
+      You are designed to be a personal maid/secretary for Discord servers.
+      Be concise, helpful, and maintain the personality traits given to you.
+      Respond naturally like a real assistant would.
+
+    # ============================================
+    # Ollama Embedding Configuration
+    # ============================================
+    # Uses Ollama's embedding API for semantic search
+    # This provides a unified model stack (same server for LLM and embeddings)
+
+    # Enable/disable Ollama-based embeddings
+    embedding-enabled: true
+
+    # Model to use for embeddings
+    # Recommended models (run: ollama pull <model>):
+    # - nomic-embed-text: 768 dims, ~270MB, excellent quality
+    # - mxbai-embed-large: 1024 dims, ~670MB, high quality
+    # - all-minilm: 384 dims, ~90MB, fast and small
+    # - snowflake-arctic-embed: 1024 dims, high quality
+    embedding-model: nomic-embed-text
+
+    # Preprocess Discord syntax before embedding
+    # Cleans mentions, emojis, URLs for better semantic matching
+    embedding-preprocess-discord: true

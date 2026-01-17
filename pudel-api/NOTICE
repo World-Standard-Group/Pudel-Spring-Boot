@@ -1,0 +1,17 @@
+PLUGIN LICENSING NOTICE
+
+The Pudel Plugin API (pudel-api) is licensed under the MIT License.
+
+This module serves as the Plugin Development Kit (PDK) for the Pudel project.
+
+Plugins developed using this API may be licensed under any terms chosen by
+their authors, including open source or proprietary licenses.
+
+Plugins that interact with Pudel exclusively through the pudel-api module
+are not considered derivative works of the AGPL-licensed pudel-core module,
+pursuant to the Pudel Plugin Exception.
+
+The pudel-core module remains licensed under the GNU Affero General Public
+License v3 (AGPLv3) with the Pudel Plugin Exception.
+
+See the project root LICENSE and PLUGIN_EXCEPTION files for details.

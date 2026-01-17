@@ -1,0 +1,101 @@
+PUDEL PLUGIN EXCEPTION
+Version 1.0 — January 2026
+
+This file is an additional permission under Section 7 of the
+GNU Affero General Public License version 3 ("AGPLv3").
+
+Copyright © 2026 Napapon Kamanee
+All rights reserved.
+
+------------------------------------------------------------
+
+1. PURPOSE
+
+Pudel (the "Program") is licensed under the GNU Affero General Public
+License version 3 or any later version ("AGPLv3").
+
+The copyright holder(s) of the Program hereby grant an additional
+permission (the "Pudel Plugin Exception") to clarify the licensing
+status of plugins developed for Pudel.
+
+------------------------------------------------------------
+
+2. DEFINITIONS
+
+For the purposes of this exception:
+
+- "pudel-core" refers to the core Pudel application licensed under
+  the AGPLv3.
+
+- "pudel-api" refers to the public Plugin API / Plugin Development Kit
+  provided by the Pudel project for the purpose of developing plugins.
+
+- "Plugin" refers to a separate work that extends or interacts with
+  Pudel by using only the public interfaces defined in pudel-api.
+
+------------------------------------------------------------
+
+3. GRANT OF ADDITIONAL PERMISSION
+
+As a special exception, the copyright holder(s) of Pudel grant you
+permission to develop, use, copy, modify, and distribute Plugins
+under terms of your choice, including proprietary or commercial terms,
+provided that all of the following conditions are met:
+
+a) The Plugin interacts with pudel-core solely through the public
+   interfaces defined in pudel-api.
+
+b) The Plugin does not include, modify, or derive from any source code
+   of pudel-core.
+
+c) The Plugin is loaded, linked, or executed at runtime using any
+   plugin or extension mechanism explicitly supported by Pudel.
+
+------------------------------------------------------------
+
+4. DERIVATIVE WORKS CLARIFICATION
+
+A Plugin that satisfies the conditions in Section 3 is NOT considered
+a "derivative work" or a "work based on the Program" within the meaning
+of the AGPLv3, even if the Plugin:
+
+- Runs in the same Java Virtual Machine process as pudel-core; or
+- Communicates with pudel-core via in-process method calls.
+
+Accordingly, such Plugins are not subject to the copyleft requirements
+of the AGPLv3.
+
+------------------------------------------------------------
+
+5. SCOPE LIMITATION
+
+This exception applies ONLY to Plugins as defined above.
+
+This exception DOES NOT apply to:
+
+- Modifications of pudel-core itself;
+- Forks or derivative works of pudel-core;
+- Code that includes or copies source code from pudel-core;
+- Distributions of pudel-core with modifications.
+
+All such works remain fully subject to the AGPLv3.
+
+------------------------------------------------------------
+
+6. VERSIONING AND CONTINUITY
+
+This Plugin Exception applies to all versions of pudel-core released
+by the copyright holder(s), unless explicitly revoked or modified in
+writing.
+
+------------------------------------------------------------
+
+7. RELATIONSHIP TO AGPLv3
+
+This exception supplements, and does not replace, the AGPLv3.
+Except as expressly stated herein, all terms of the AGPLv3 continue
+to apply without modification.
+
+------------------------------------------------------------
+
+END OF PUDEL PLUGIN EXCEPTION
