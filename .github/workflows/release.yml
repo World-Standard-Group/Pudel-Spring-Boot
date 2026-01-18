@@ -1,0 +1,82 @@
+name: Publish Pudel API
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+  pages: write
+  id-token: write
+
+jobs:
+  publish-api:
+    name: Publish API & Parent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5.1.0
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          server-id: github
+          settings-path: ${{ github.workspace }}
+          cache: 'maven'
+
+      - name: Import GPG Key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Publish API
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        # -pl pudel-api: Builds ONLY the API module
+        # -am: Builds the Parent POM (metadata) because API depends on it
+        # Core and Model are completely ignored
+        run: |
+          mvn --batch-mode deploy \
+            -pl pudel-api -am \
+            -s ${{ github.workspace }}/settings.xml \
+            -DskipTests \
+            -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }} \
+            -Dcentral.publishing.skip=true
+
+  deploy-docs:
+    name: Deploy Javadocs
+    needs: publish-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5.1.0
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # Generates docs only for API.
+      # Since we are not deploying, we don't need -am here,
+      # but we need to install the parent locally first so Javadoc can read it.
+      - name: Install Parent Locally
+        run: mvn install -N -DskipTests
+
+      - name: Generate API Javadocs
+        run: mvn javadoc:javadoc -pl pudel-api -Ddoclint=none
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./pudel-api/target/site/apidocs
+          commit_message: "docs: deploy api javadocs for ${{ github.ref_name }}"

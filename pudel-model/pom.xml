@@ -13,6 +13,32 @@
     <name>Pudel Model</name>
     <description>Brain module for Pudel - Ollama client and embedding service</description>
 
+    <licenses>
+        <license>
+            <name>GNU Affero General Public License v3</name>
+            <url>https://raw.githubusercontent.com/World-Standard-Group/Pudel-Spring-Boot/refs/heads/main/LICENSE</url>
+        </license>
+        <license>
+            <name>PUDEL PLUGIN EXCEPTION</name>
+            <url>https://raw.githubusercontent.com/World-Standard-Group/Pudel-Spring-Boot/refs/heads/main/PLUGIN_EXCEPTION</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>zazalng</id>
+            <name>Napapon Kamanee</name>
+            <email>kenghide@hotmail.com</email>
+            <organization>World Standard Group</organization>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/World-Standard-Group/Pudel-Spring-Boot.git</connection>
+        <developerConnection>scm:git:git@github.com:World-Standard-Group/Pudel-Spring-Boot.git</developerConnection>
+        <url>https://github.com/World-Standard-Group/Pudel-Spring-Boot.git</url>
+    </scm>
+
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
