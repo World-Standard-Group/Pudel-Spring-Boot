@@ -70,7 +70,6 @@ public class SecurityConfiguration {
                         .requestMatchers(
                                 "/api/auth/discord/**",
                                 "/api/bot/**",
-                                "/api/wiki/**",
                                 "/api/plugins",
                                 "/api/plugins/*"
                         ).permitAll()

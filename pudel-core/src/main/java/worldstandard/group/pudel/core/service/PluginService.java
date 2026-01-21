@@ -249,6 +249,10 @@ public class PluginService extends BaseService {
         }
 
         pluginContexts.clear();
+
+        // Close all class loaders to release file handles
+        pluginClassLoader.closeAllClassLoaders();
+
         logger.info("All plugins shut down");
     }
 

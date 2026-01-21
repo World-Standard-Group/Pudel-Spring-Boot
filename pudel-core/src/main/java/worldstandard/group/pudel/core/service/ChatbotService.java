@@ -485,7 +485,7 @@ public class ChatbotService {
                 logger.debug("Including forward context in message");
             }
 
-            final String cleanMessage = processedMessage.isEmpty() ? "Hello!" : processedMessage;
+            final String cleanMessage = processedMessage.isEmpty() ? "" : processedMessage;
 
             // Get conversation context
             ConversationContext context = getConversationContext(event);

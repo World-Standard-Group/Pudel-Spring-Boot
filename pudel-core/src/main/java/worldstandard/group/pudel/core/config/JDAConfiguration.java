@@ -40,10 +40,6 @@ import java.time.temporal.ChronoUnit;
  * connections to use End-to-End Encryption via the DAVE protocol. JDA supports
  * this through the AudioModuleConfig interface.</p>
  *
- * <p>DAVE implementations are loaded via plugins. The default-pudel plugin bundle
- * includes JDAVE support for Java 25+. When a DAVE provider plugin is loaded,
- * it registers with the VoiceManager, and JDA will use it for voice connections.</p>
- *
  * @see <a href="https://discord.com/developers/docs/topics/voice-connections#dave-protocol">DAVE Protocol</a>
  */
 @Configuration
@@ -92,11 +88,6 @@ public class JDAConfiguration {
             // Configure audio settings
             if (audioEnabled) {
                 logger.info("Audio support enabled - DAVE will be configured via plugins");
-                // Note: DAVE is configured dynamically when plugins register their providers
-                // The VoiceManagerImpl handles the DAVE provider registration
-                // JDA 6+ supports setAudioModuleConfig() for DAVE
-
-                // Try to configure DAVE if JDAVE is available in classpath
                 configureDAVE(builder);
             } else {
                 logger.info("Audio support disabled - voice connections will not be available");
@@ -163,7 +154,7 @@ public class JDAConfiguration {
 
             if (daysUntilDeadline <= 30) {
                 logger.warn("╔════════════════════════════════════════════════════════════════╗");
-                logger.warn("║                    DAVE DEADLINE IMMINENT                       ║");
+                logger.warn("║                    DAVE DEADLINE IMMINENT                      ║");
                 logger.warn("║  {} days until March 1st, 2026 - Voice E2EE required!          ║", String.format("%3d", daysUntilDeadline));
                 logger.warn("║  Ensure JDAVE or libdave-jvm plugin is installed               ║");
                 logger.warn("╚════════════════════════════════════════════════════════════════╝");

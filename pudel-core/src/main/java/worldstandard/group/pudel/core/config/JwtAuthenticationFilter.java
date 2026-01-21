@@ -82,7 +82,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         return path.startsWith("/api/auth/discord/")
                 || path.startsWith("/api/bot/")
-                || path.startsWith("/api/wiki/")
                 || (path.equals("/api/plugins") && "GET".equals(request.getMethod()))
                 || (path.matches("/api/plugins/[^/]+") && "GET".equals(request.getMethod()));
     }

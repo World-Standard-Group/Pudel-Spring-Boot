@@ -225,6 +225,30 @@ public class PluginClassLoader {
     }
 
     /**
+     * Close all class loaders. Call during shutdown.
+     */
+    public void closeAllClassLoaders() {
+        logger.info("Closing all plugin class loaders...");
+        List<String> pluginNames = new ArrayList<>(classLoaders.keySet());
+
+        for (String pluginName : pluginNames) {
+            URLClassLoader classLoader = classLoaders.remove(pluginName);
+            loadedPlugins.remove(pluginName);
+
+            if (classLoader != null) {
+                try {
+                    classLoader.close();
+                    logger.debug("Closed class loader for plugin: {}", pluginName);
+                } catch (IOException e) {
+                    logger.error("Error closing class loader for plugin {}: {}", pluginName, e.getMessage());
+                }
+            }
+        }
+
+        logger.info("All plugin class loaders closed");
+    }
+
+    /**
      * Get a loaded plugin.
      * @param pluginName the plugin name
      * @return the plugin or null if not found

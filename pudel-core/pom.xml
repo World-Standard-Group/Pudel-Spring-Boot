@@ -40,7 +40,7 @@
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jdava.version>0.1.3</jdava.version>
+        <jdave.version>0.1.5</jdave.version>
     </properties>
 
     <dependencies>
@@ -71,27 +71,27 @@
         <dependency>
             <groupId>club.minnced</groupId>
             <artifactId>jdave-api</artifactId>
-            <version>${jdava.version}</version>
+            <version>${jdave.version}</version>
         </dependency>
         <dependency>
             <groupId>club.minnced</groupId>
             <artifactId>jdave-native-win-x86-64</artifactId>
-            <version>${jdava.version}</version>
+            <version>${jdave.version}</version>
         </dependency>
         <dependency>
             <groupId>club.minnced</groupId>
             <artifactId>jdave-native-linux-x86-64</artifactId>
-            <version>${jdava.version}</version>
+            <version>${jdave.version}</version>
         </dependency>
         <dependency>
             <groupId>club.minnced</groupId>
             <artifactId>jdave-native-linux-aarch64</artifactId>
-            <version>${jdava.version}</version>
+            <version>${jdave.version}</version>
         </dependency>
         <dependency>
             <groupId>club.minnced</groupId>
             <artifactId>jdave-native-darwin</artifactId>
-            <version>${jdava.version}</version>
+            <version>${jdave.version}</version>
         </dependency>
 
         <!-- Pudel API -->

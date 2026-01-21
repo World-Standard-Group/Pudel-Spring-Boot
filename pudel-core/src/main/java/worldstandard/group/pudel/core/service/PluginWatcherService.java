@@ -12,7 +12,7 @@
  *
  * See the LICENSE and PLUGIN_EXCEPTION files in the project root for details.
  */
-package worldstandard.group.pudel.core.plugin;
+package worldstandard.group.pudel.core.service;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -23,8 +23,8 @@ import org.springframework.stereotype.Service;
 import worldstandard.group.pudel.api.PudelPlugin;
 import worldstandard.group.pudel.core.config.PluginProperties;
 import worldstandard.group.pudel.core.entity.PluginMetadata;
+import worldstandard.group.pudel.core.plugin.PluginClassLoader;
 import worldstandard.group.pudel.core.repository.PluginMetadataRepository;
-import worldstandard.group.pudel.core.service.PluginService;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,6 +35,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Service that watches the plugins directory for changes and handles hot-reload.
@@ -63,13 +64,24 @@ public class PluginWatcherService {
     // Track JAR file -> plugin name mapping
     private final Map<String, String> jarToPlugin = new ConcurrentHashMap<>();
 
+    // Track failed JAR files: jarFileName -> (hash, lastAttemptTime)
+    // This allows re-attempting load when the JAR is updated
+    private final Map<String, FailedJarInfo> failedJars = new ConcurrentHashMap<>();
+
     // Pending updates for enabled plugins: pluginName -> (newJarPath, detectedTime)
     private final Map<String, PendingUpdate> pendingUpdates = new ConcurrentHashMap<>();
 
     // Temp directory for loaded plugin copies
     private Path tempPluginDir;
 
+    // Thread-safe shutdown flag to prevent double cleanup
+    private final AtomicBoolean shutdownInitiated = new AtomicBoolean(false);
+    private final AtomicBoolean cleanupCompleted = new AtomicBoolean(false);
+
     private volatile boolean watcherRunning = false;
+
+    // Shutdown hook reference for cleanup
+    private Thread shutdownHook;
 
     public PluginWatcherService(PluginProperties pluginProperties,
                                  PluginClassLoader pluginClassLoader,
@@ -88,8 +100,16 @@ public class PluginWatcherService {
             tempPluginDir = Files.createTempDirectory("pudel-plugins-");
             logger.info("Plugin temp directory: {}", tempPluginDir);
 
-            // Register shutdown hook to clean temp dir
-            Runtime.getRuntime().addShutdownHook(new Thread(this::cleanupTempDir));
+            // Register shutdown hook to clean temp dir (only if Spring doesn't handle it)
+            shutdownHook = new Thread(() -> {
+                if (shutdownInitiated.compareAndSet(false, true)) {
+                    logger.info("Shutdown hook triggered - cleaning up plugin resources");
+                    performCleanup();
+                }
+            }, "PluginWatcher-ShutdownHook");
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+
+            watcherRunning = true;
 
             // Initial scan
             scanPluginsDirectory();
@@ -101,8 +121,61 @@ public class PluginWatcherService {
 
     @PreDestroy
     public void shutdown() {
+        logger.info("PluginWatcherService shutting down...");
         watcherRunning = false;
-        cleanupTempDir();
+
+        // Mark shutdown as initiated to prevent shutdown hook from running
+        if (shutdownInitiated.compareAndSet(false, true)) {
+            // We're the first to initiate shutdown, perform cleanup
+            performCleanup();
+
+            // Try to remove shutdown hook since we handled cleanup
+            try {
+                if (shutdownHook != null) {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
+                }
+            } catch (IllegalStateException e) {
+                // JVM is already shutting down, hook can't be removed
+                logger.debug("Could not remove shutdown hook - JVM already shutting down");
+            }
+        }
+
+        logger.info("PluginWatcherService shutdown complete");
+    }
+
+    /**
+     * Performs the actual cleanup of resources.
+     * This method is thread-safe and will only run once.
+     */
+    private void performCleanup() {
+        if (cleanupCompleted.compareAndSet(false, true)) {
+            logger.info("Performing plugin cleanup...");
+
+            // First, shutdown all plugins to release classloader resources
+            try {
+                pluginService.shutdownAllPlugins();
+            } catch (Exception e) {
+                logger.error("Error shutting down plugins: {}", e.getMessage(), e);
+            }
+
+            // Give a moment for classloaders to release file handles
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // Now cleanup temp directory
+            cleanupTempDir();
+
+            // Clear all tracking maps
+            jarHashes.clear();
+            jarToPlugin.clear();
+            failedJars.clear();
+            pendingUpdates.clear();
+
+            logger.info("Plugin cleanup completed");
+        }
     }
 
     /**
@@ -156,6 +229,18 @@ public class PluginWatcherService {
         try {
             String currentHash = computeFileHash(jarFile);
             String jarName = jarFile.getName();
+
+            // Check if this was a previously failed JAR
+            FailedJarInfo failedInfo = failedJars.get(jarName);
+            if (failedInfo != null) {
+                // Check if the JAR has been updated since last failure
+                if (!failedInfo.hash.equals(currentHash)) {
+                    logger.info("Previously failed JAR '{}' has been updated, retrying load...", jarName);
+                    failedJars.remove(jarName);
+                    loadNewPlugin(jarFile, currentHash);
+                }
+                return; // Skip if same hash (still failed)
+            }
 
             // Check if this is a known plugin
             String existingPluginName = jarToPlugin.get(jarName);
@@ -235,10 +320,11 @@ public class PluginWatcherService {
      * Load a new plugin.
      */
     private void loadNewPlugin(File jarFile, String hash) {
+        Path tempCopy = null;
         try {
             // Copy to temp directory
             String tempName = jarFile.getName().replace(".jar", "-" + hash.substring(0, 8) + ".jar");
-            Path tempCopy = tempPluginDir.resolve(tempName);
+            tempCopy = tempPluginDir.resolve(tempName);
             Files.copy(jarFile.toPath(), tempCopy, StandardCopyOption.REPLACE_EXISTING);
 
             // Load from temp copy
@@ -249,12 +335,42 @@ public class PluginWatcherService {
                 jarHashes.put(pluginName, hash);
                 jarToPlugin.put(jarFile.getName(), pluginName);
 
+                // Remove from failed list if it was there
+                failedJars.remove(jarFile.getName());
+
                 logger.info("New plugin discovered: {} v{}", pluginName, plugin.getPluginInfo().getVersion());
+            } else {
+                // Plugin load returned null - track as failed
+                trackFailedJar(jarFile.getName(), hash, "Plugin load returned null");
+                // Cleanup the temp copy
+                try {
+                    Files.deleteIfExists(tempCopy);
+                } catch (IOException e) {
+                    logger.debug("Could not delete temp file for failed plugin: {}", tempCopy);
+                }
             }
 
         } catch (Exception e) {
             logger.error("Failed to load new plugin from {}: {}", jarFile.getName(), e.getMessage(), e);
+            // Track this JAR as failed so we can retry when it's updated
+            trackFailedJar(jarFile.getName(), hash, e.getMessage());
+            // Cleanup the temp copy on failure
+            if (tempCopy != null) {
+                try {
+                    Files.deleteIfExists(tempCopy);
+                } catch (IOException ioEx) {
+                    logger.debug("Could not delete temp file for failed plugin: {}", tempCopy);
+                }
+            }
         }
+    }
+
+    /**
+     * Track a failed JAR file for retry when updated.
+     */
+    private void trackFailedJar(String jarFileName, String hash, String reason) {
+        failedJars.put(jarFileName, new FailedJarInfo(hash, Instant.now(), reason));
+        logger.warn("JAR '{}' failed to load: {}. Will retry when JAR is updated.", jarFileName, reason);
     }
 
     /**
@@ -324,22 +440,63 @@ public class PluginWatcherService {
     }
 
     /**
-     * Cleanup temp directory.
+     * Cleanup temp directory with retry for locked files.
      */
     private void cleanupTempDir() {
-        if (tempPluginDir != null) {
-            try {
-                Files.walk(tempPluginDir)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
+        if (tempPluginDir != null && Files.exists(tempPluginDir)) {
+            logger.info("Cleaning up temp directory: {}", tempPluginDir);
+
+            // Suggest garbage collection to help release file handles
+            System.gc();
+
+            int maxRetries = 3;
+            int retryDelayMs = 200;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    List<Path> pathsToDelete;
+                    try (var pathStream = Files.walk(tempPluginDir)) {
+                        pathsToDelete = pathStream
+                            .sorted(Comparator.reverseOrder())
+                            .toList();
+                    }
+
+                    List<Path> failedPaths = new ArrayList<>();
+
+                    for (Path path : pathsToDelete) {
                         try {
                             Files.deleteIfExists(path);
                         } catch (IOException e) {
-                            logger.debug("Failed to delete temp file: {}", path);
+                            failedPaths.add(path);
+                            logger.debug("Failed to delete temp file (attempt {}): {}", attempt, path);
                         }
-                    });
-            } catch (IOException e) {
-                logger.debug("Failed to cleanup temp directory: {}", e.getMessage());
+                    }
+
+                    if (failedPaths.isEmpty()) {
+                        logger.info("Temp directory cleaned up successfully");
+                        return;
+                    }
+
+                    if (attempt < maxRetries) {
+                        logger.debug("Retrying cleanup in {}ms... ({} files remaining)", retryDelayMs, failedPaths.size());
+                        Thread.sleep(retryDelayMs);
+                        retryDelayMs *= 2; // Exponential backoff
+                    } else {
+                        // Mark files for deletion on exit as last resort
+                        for (Path path : failedPaths) {
+                            path.toFile().deleteOnExit();
+                        }
+                        logger.warn("Could not delete {} temp files, marked for deletion on exit", failedPaths.size());
+                    }
+
+                } catch (IOException e) {
+                    logger.debug("Failed to walk temp directory: {}", e.getMessage());
+                    break;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.debug("Cleanup interrupted");
+                    break;
+                }
             }
         }
     }
@@ -356,6 +513,21 @@ public class PluginWatcherService {
             this.jarPath = jarPath;
             this.newHash = newHash;
             this.detectedTime = detectedTime;
+        }
+    }
+
+    /**
+     * Failed JAR tracking record.
+     */
+    private static class FailedJarInfo {
+        public final String hash;
+        public final Instant lastAttemptTime;
+        public final String reason;
+
+        public FailedJarInfo(String hash, Instant lastAttemptTime, String reason) {
+            this.hash = hash;
+            this.lastAttemptTime = lastAttemptTime;
+            this.reason = reason;
         }
     }
 }
