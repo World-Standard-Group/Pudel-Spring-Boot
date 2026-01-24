@@ -1,0 +1,44 @@
+erDiagram
+%% Public Schema
+    USERS ||--|{ USER_GUILDS : joins
+    GUILDS ||--|{ USER_GUILDS : joins
+    GUILDS ||--|| GUILD_SETTINGS : has
+    USERS ||--|{ SUBSCRIPTIONS : has
+
+    USERS {
+        uuid id PK
+        string username
+        string discord_id
+    }
+
+    GUILDS {
+        uuid id PK
+        string discord_guild_id
+        string name
+    }
+
+%% Per-Guild Schema Representation
+    GUILDS ||--|{ DIALOGUE_HISTORY : "Schema: guild_{id}"
+    GUILDS ||--|{ MEMORY : "Schema: guild_{id}"
+
+    DIALOGUE_HISTORY {
+        bigint id PK
+        string user_id
+        string channel_id
+        text message_content
+        timestamp created_at
+    }
+
+    MEMORY ||--|| MEMORY_EMBEDDINGS : "has vector"
+
+    MEMORY {
+        bigint id PK
+        string key
+        text value
+        string category
+    }
+
+    MEMORY_EMBEDDINGS {
+        bigint memory_id FK
+        vector embedding
+    }

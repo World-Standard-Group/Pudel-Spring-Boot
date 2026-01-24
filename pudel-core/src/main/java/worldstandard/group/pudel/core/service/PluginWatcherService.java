@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import worldstandard.group.pudel.api.PudelPlugin;
-import worldstandard.group.pudel.core.config.PluginProperties;
+import worldstandard.group.pudel.core.config.plugins.PluginProperties;
 import worldstandard.group.pudel.core.entity.PluginMetadata;
 import worldstandard.group.pudel.core.plugin.PluginClassLoader;
 import worldstandard.group.pudel.core.repository.PluginMetadataRepository;
@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Service that watches the plugins directory for changes and handles hot-reload.
- *
+ * <p>
  * Features:
  * - Auto-detect new plugins
  * - Hash-based change detection for updates

@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import worldstandard.group.pudel.core.command.CommandRegistry;
-import worldstandard.group.pudel.core.command.HelpSessionManager;
+import worldstandard.group.pudel.core.command.builtin.HelpSessionManager;
 
 /**
  * Listener for handling reaction-based navigation in help menus and other interactive embeds.

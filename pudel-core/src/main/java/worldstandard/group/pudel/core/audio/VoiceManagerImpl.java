@@ -108,7 +108,7 @@ public class VoiceManagerImpl implements VoiceManager {
 
         @Override
         public String getVersion() {
-            return "0.1.2";
+            return "0.1.5";
         }
 
         @Override

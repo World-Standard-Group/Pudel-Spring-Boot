@@ -227,7 +227,9 @@ public class TextAnalyzerService {
 
         try {
             // Run LLM call on dedicated executor to protect from JDA heartbeat interruptions
-            Future<String> futureResult = llmExecutor.submit(() -> analysisModel.chat(prompt));
+            Future<String> futureResult = CompletableFuture
+                    .supplyAsync(() -> analysisModel.chat(prompt), llmExecutor)
+                    .orTimeout(300, TimeUnit.SECONDS);
 
             // Wait for result with timeout - if JDA interrupts us, the LLM call continues
             String result;
@@ -241,7 +243,7 @@ public class TextAnalyzerService {
                 return analyzeWithPatterns(text, entities, isQuestion, isCommand, isGreeting, isFarewell);
             } catch (TimeoutException e) {
                 logger.debug("LLM analysis timed out");
-                futureResult.cancel(true);
+                futureResult.cancel(false);
                 return analyzeWithPatterns(text, entities, isQuestion, isCommand, isGreeting, isFarewell);
             } catch (ExecutionException e) {
                 logger.debug("LLM analysis execution error: {}", e.getCause().getMessage());

@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> Loaded: load()
+
+    state Loaded {
+        [*] --> Initialized: initialize()
+    }
+
+    Loaded --> Enabled: enable (onEnable)
+    Enabled --> Disabled: disable (onDisable)
+    Disabled --> Enabled: enable (onEnable)
+
+    Disabled --> Unloaded: unload
+    Enabled --> Unloaded: shutdown()
+    Unloaded --> [*]

@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
-import worldstandard.group.pudel.core.config.PluginProperties;
+import worldstandard.group.pudel.core.config.plugins.PluginProperties;
 import worldstandard.group.pudel.core.service.PluginService;
 
 /**

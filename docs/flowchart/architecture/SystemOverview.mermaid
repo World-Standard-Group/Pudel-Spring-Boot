@@ -1,0 +1,32 @@
+graph TD
+    subgraph "Client Side"
+        Vue[Vue Frontend]
+    end
+
+    subgraph "Server Side (Spring Boot)"
+        API[Spring Boot API<br/>pudel-core]
+        Plugins[Plugin System]
+        API --- Plugins
+    end
+
+    subgraph "Data Storage"
+        DB[(PostgreSQL)]
+        Vector[pgvector Extension]
+        DB -.- Vector
+    end
+
+    subgraph "External Services"
+        Discord[Discord API<br/>Gateway + REST]
+        Ollama[Ollama LLM<br/>Local Model]
+    end
+
+%% Connections
+    Vue <-->|REST / JWT| API
+    API <-->|JPA / JDBC| DB
+    API <-->|JDA 6| Discord
+    API <-->|HTTP / LangChain4j| Ollama
+
+    style API fill:#f9f,stroke:#333,stroke-width:2px
+    style Vue fill:#ccf,stroke:#333
+    style Discord fill:#7289da,stroke:#333,color:#fff
+    style Ollama fill:#fff,stroke:#333

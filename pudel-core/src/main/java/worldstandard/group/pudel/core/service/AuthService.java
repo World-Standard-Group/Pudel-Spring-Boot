@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import net.dv8tion.jda.api.JDA;
-import worldstandard.group.pudel.core.config.JwtUtil;
+import worldstandard.group.pudel.core.config.springboot.JwtUtil;
 import worldstandard.group.pudel.core.dto.OAuthCallbackResponse;
 import worldstandard.group.pudel.core.dto.UserDto;
 import worldstandard.group.pudel.core.entity.Guild;

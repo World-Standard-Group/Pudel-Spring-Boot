@@ -222,8 +222,8 @@ See [pudel-api/README.md](pudel-api/README.md) for comprehensive documentation.
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
-| [API_SPECIFICATION.md](API_SPECIFICATION.md) | REST API reference |
+| [ARCHITECTURE.md](docs/flowchart/architecture/ARCHITECTURE.md) | System architecture overview |
+| [API_SPECIFICATION.md](docs/API_SPECIFICATION.md) | REST API reference |
 | [pudel-api/README.md](pudel-api/README.md) | Plugin Development Kit guide |
 | [docs/DAVE_PROTOCOL.md](docs/DAVE_PROTOCOL.md) | Voice encryption (DAVE) guide |
 | [docs/SUBSCRIPTION_SYSTEM.md](docs/SUBSCRIPTION_SYSTEM.md) | Subscription tiers |
@@ -317,7 +317,7 @@ For users of the official Pudel instance:
 ## Support
 
 - **Discord**: [Pudel Support Server (TBA)](https://discord.gg/pudel)
-- **Issues**: [GitHub Issues](https://github.com/worldstandard/pudel/issues)
+- **Issues**: [GitHub Issues](https://github.com/World-Standard-Group/Pudel-Spring-Boot/issues)
 - **Documentation**: [Wiki (TBA)]()
 
 ---
@@ -332,6 +332,6 @@ The plugin boundary and licensing model are considered **stable**. APIs are prod
 
 ## Author
 
-© 2025 Napapon Kamanee (World Standard Group)
+© 2026 Napapon Kamanee (World Standard Group)
 
 ---

@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import worldstandard.group.pudel.core.brain.PudelBrain;
-import worldstandard.group.pudel.core.config.ChatbotConfig;
+import worldstandard.group.pudel.core.config.brain.ChatbotConfig;
 import worldstandard.group.pudel.core.entity.GuildSettings;
 import worldstandard.group.pudel.core.util.DiscordMessageParser;
 import worldstandard.group.pudel.core.util.DiscordMessageParser.ParseResult;

@@ -1,0 +1,17 @@
+graph TD
+    Start(Start Watcher Service) -->|Every 60s| Scan[Scan /plugins directory]
+    Scan --> Compute[Compute SHA256 Hashes]
+    Compute --> Check{Change Detected?}
+
+    Check -- No --> Wait[Wait next cycle]
+    Check -- Yes --> Type{Change Type}
+
+    Type -- New JAR --> Copy[Copy to Temp]
+    Copy --> Load[Load Plugin]
+
+    Type -- Hash Changed --> Status{Is Enabled?}
+    Status -- No --> UpdateNow[Apply Update Immediately]
+
+    Status -- Yes --> Queue[Queue Update]
+    Queue --> Warn[Warn Admins every 1 min]
+    Warn --> Action[Wait for Disable/Restart]

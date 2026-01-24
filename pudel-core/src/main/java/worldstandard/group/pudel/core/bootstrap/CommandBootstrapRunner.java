@@ -21,6 +21,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import worldstandard.group.pudel.core.command.*;
+import worldstandard.group.pudel.core.command.builtin.*;
 import worldstandard.group.pudel.core.service.GuildInitializationService;
 
 /**

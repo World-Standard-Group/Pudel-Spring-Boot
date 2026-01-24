@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant User
+    participant Vue as Vue Frontend
+    participant Discord as Discord OAuth
+    participant Backend as Spring Boot
+
+    User->>Vue: Click "Login with Discord"
+    Vue->>Discord: Redirect to OAuth URL
+    User->>Discord: Authorize Application
+    Discord-->>Vue: Callback with Auth Code
+    Vue->>Backend: POST /auth/login (Auth Code)
+    Backend->>Discord: Exchange Code for Token
+    Discord-->>Backend: Access Token + User Info
+    Backend->>Backend: Generate JWT
+    Backend-->>Vue: Return JWT Token
+
+    note right of Vue: Store JWT for API requests

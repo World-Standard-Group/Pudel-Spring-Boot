@@ -20,8 +20,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import worldstandard.group.pudel.core.config.ChatbotConfig;
-import worldstandard.group.pudel.core.config.MemoryConfig;
+import worldstandard.group.pudel.core.config.brain.ChatbotConfig;
+import worldstandard.group.pudel.core.config.brain.MemoryConfig;
 
 import java.time.LocalDateTime;
 import java.util.List;

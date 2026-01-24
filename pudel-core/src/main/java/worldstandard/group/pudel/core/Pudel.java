@@ -22,9 +22,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import worldstandard.group.pudel.core.config.ChatbotConfig;
-import worldstandard.group.pudel.core.config.MemoryConfig;
-import worldstandard.group.pudel.core.config.SubscriptionTierConfig;
+import worldstandard.group.pudel.core.config.brain.ChatbotConfig;
+import worldstandard.group.pudel.core.config.brain.MemoryConfig;
+import worldstandard.group.pudel.core.config.database.SubscriptionTierConfig;
 import worldstandard.group.pudel.model.config.OllamaConfig;
 
 /**

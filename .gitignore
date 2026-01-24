@@ -42,7 +42,7 @@ pudel_db
 Thumbs.db
 
 # Plugins
-plugins/
+/plugins/
 !plugins/.gitkeep
 
 # Web App

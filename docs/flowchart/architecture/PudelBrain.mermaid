@@ -1,0 +1,19 @@
+flowchart TD
+    Input[User Message] --> Analyzer[TextAnalyzerService]
+    subgraph Analysis
+        Analyzer --> Intent[Intent Detection]
+        Analyzer --> Sentiment[Sentiment Analysis]
+    end
+
+    Analysis --> MemManager[MemoryManager]
+
+    subgraph "Memory & Context"
+        MemManager -->|Retrieve| PG[(PostgreSQL + pgvector)]
+        PG -->|Semantic Context| MemManager
+    end
+
+    MemManager --> Persona[PersonalityEngine]
+    Persona -->|Apply Traits/Guild Config| PromptBuilder[ResponseGenerator]
+
+    PromptBuilder -->|Context + Prompt| LLM[Ollama LLM]
+    LLM --> Output[Bot Response]

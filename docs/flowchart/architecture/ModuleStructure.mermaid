@@ -1,0 +1,33 @@
+graph LR
+subgraph "Pudel Project Structure"
+direction LR
+
+Core(pudel-core) --> |Dependency| API(pudel-api)
+Core <-->|Dependency| Model(pudel-model)
+
+subgraph "pudel-api (PDK)"
+P1[PudelPlugin]
+P2[command/ ]
+P3[event/ ]
+P4[audio/ ]
+end
+
+subgraph "pudel-model (AI)"
+M1[PudelModelService]
+M2[OllamaClient]
+M3[DiscordSyntaxProcessor]
+M4[analyzer/ ]
+end
+
+subgraph "pudel-core (Application)"
+C1[brain/ Personality & Memory]
+C2[discord/ JDA Handling]
+C3[service/ Business Logic]
+C4[plugin/ Manager]
+end
+
+subgraph "database"
+D1[init.sql]
+D2[migrations/ ]
+end
+end
