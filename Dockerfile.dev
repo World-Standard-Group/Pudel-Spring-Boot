@@ -1,0 +1,105 @@
+# ===========================================
+# Pudel Discord Bot - Lightweight Dockerfile
+# This version clones and builds at container startup
+# Easier to update - just restart the container
+# ===========================================
+
+FROM ubuntu:24.04
+
+LABEL maintainer="World Standard Group"
+LABEL description="Pudel Discord Bot - AI Assistant with Plugin System (Dev/Update Mode)"
+LABEL version="1.0.0"
+
+# Install required packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    git \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Eclipse Temurin JDK 25
+ARG JDK_VERSION=25
+RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /etc/apt/trusted.gpg.d/adoptium.gpg \
+    && echo "deb https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list \
+    && apt-get update \
+    && apt-get install -y temurin-${JDK_VERSION}-jdk || apt-get install -y temurin-24-jdk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Maven
+ARG MAVEN_VERSION=3.9.9
+RUN wget -qO- https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
+    | tar xzf - -C /opt \
+    && ln -s /opt/apache-maven-${MAVEN_VERSION} /opt/maven
+
+ENV MAVEN_HOME=/opt/maven
+ENV PATH="${MAVEN_HOME}/bin:${PATH}"
+
+# Set working directory
+WORKDIR /app
+
+# ===========================================
+# Git Configuration for Auto-Updates
+# ===========================================
+ENV GIT_REPO=https://github.com/World-Standard-Group/Pudel-Spring-Boot.git
+ENV GIT_BRANCH=main
+ENV AUTO_UPDATE=true
+
+# ===========================================
+# Environment Variables Configuration
+# ===========================================
+
+# Database Configuration
+ENV POSTGRES_HOST=localhost
+ENV POSTGRES_PORT=5432
+ENV POSTGRES_USER=postgres
+ENV POSTGRES_PASS=
+ENV POSTGRES_DB=pudel
+
+# Discord Bot Configuration
+ENV DISCORD_BOT_TOKEN=
+ENV DISCORD_CLIENT_ID=
+ENV DISCORD_CLIENT_SECRET=
+ENV DISCORD_REDIRECT_URI=http://localhost/auth/callback
+
+# JWT Configuration
+ENV JWT_SECRET=change-this-secret-key-in-production-min-32-chars
+ENV JWT_EXPIRATION=604800000
+
+# CORS Configuration
+ENV CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost
+
+# Ollama LLM Configuration
+ENV OLLAMA_ENABLED=true
+ENV OLLAMA_URL=http://localhost:11434
+ENV OLLAMA_MODEL=qwen3:8b
+
+# Embedding Configuration
+ENV EMBEDDING_ENABLED=true
+ENV EMBEDDING_MODEL=qwen3-embedding:8b
+
+# Server Configuration
+ENV SERVER_PORT=8080
+
+# JVM Options
+ENV JAVA_OPTS="-Xms512m -Xmx2g -XX:+UseG1GC -XX:+UseStringDeduplication"
+
+# Create directories
+RUN mkdir -p /app/plugins /app/data /app/logs /app/src
+
+# Volume for persistent data
+VOLUME ["/app/plugins", "/app/data", "/app/logs"]
+
+# Expose the application port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:${SERVER_PORT}/actuator/health || exit 1
+
+# Copy the startup script
+COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+

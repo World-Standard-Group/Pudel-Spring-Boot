@@ -1,0 +1,54 @@
+# ===========================================
+# Docker Ignore File
+# Excludes unnecessary files from Docker build
+# ===========================================
+
+# Git
+.git
+.gitignore
+.github
+
+# IDE
+.idea
+*.iml
+.vscode
+.project
+.classpath
+.settings
+
+# Build artifacts
+**/target
+!pudel-core/target/*.jar
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Vue frontend (built separately)
+vue
+
+# Environment files (use docker-compose env)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+**/src/test
+
+# Scripts (not needed in image)
+scripts
+
+# Docker files (prevent recursive copy)
+Dockerfile*
+docker-compose*
+.dockerignore
+

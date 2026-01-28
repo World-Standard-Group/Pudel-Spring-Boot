@@ -1,0 +1,168 @@
+version: '3.9'
+
+# ===========================================
+# Pudel Discord Bot - Docker Compose
+# Complete setup with PostgreSQL, Ollama, and the Bot
+# ===========================================
+
+services:
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: pudel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASS:-pudelpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-pudel}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pudel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pudel-network
+
+  # ===========================================
+  # Ollama LLM Service (Optional - for AI features)
+  # ===========================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pudel-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    # GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pudel-network
+
+  # ===========================================
+  # Pudel Discord Bot
+  # ===========================================
+  pudel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GIT_REPO: ${GIT_REPO:-https://github.com/World-Standard-Group/Pudel-Spring-Boot.git}
+        GIT_BRANCH: ${GIT_BRANCH:-main}
+    image: pudel-bot:latest
+    container_name: pudel-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASS: ${POSTGRES_PASS:-pudelpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-pudel}
+
+      # Discord Bot
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost/auth/callback}
+
+      # Security
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-key-in-production-min-32-chars}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-604800000}
+
+      # CORS
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost}
+
+      # Ollama
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+
+      # Embedding
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:8b}
+
+      # Server
+      SERVER_PORT: ${SERVER_PORT:-8080}
+
+      # JVM
+      JAVA_OPTS: ${JAVA_OPTS:--Xms512m -Xmx2g -XX:+UseG1GC -XX:+UseStringDeduplication}
+    volumes:
+      - ./plugins:/app/plugins
+      - pudel_logs:/app/logs
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    networks:
+      - pudel-network
+
+  # ===========================================
+  # Pudel Updater Service (Auto-update from Git)
+  # Runs on a schedule to pull latest updates
+  # ===========================================
+  pudel-updater:
+    image: alpine/git:latest
+    container_name: pudel-updater
+    restart: "no"
+    volumes:
+      - ./:/repo
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      GIT_REPO: ${GIT_REPO:-https://github.com/World-Standard-Group/Pudel-Spring-Boot.git}
+      GIT_BRANCH: ${GIT_BRANCH:-main}
+    entrypoint: /bin/sh
+    command: >
+      -c "
+        cd /repo &&
+        git fetch origin ${GIT_BRANCH:-main} &&
+        git reset --hard origin/${GIT_BRANCH:-main} &&
+        echo 'Repository updated successfully!'
+      "
+    profiles:
+      - update
+    networks:
+      - pudel-network
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  pudel-network:
+    driver: bridge
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local
+  pudel_logs:
+    driver: local
+
