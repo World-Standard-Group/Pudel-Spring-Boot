@@ -11,7 +11,7 @@ services:
   # PostgreSQL Database with pgvector
   # ===========================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     container_name: pudel-postgres
     restart: unless-stopped
     environment:
@@ -95,7 +95,8 @@ services:
       DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost/auth/callback}
 
       # Security
-      JWT_SECRET: ${JWT_SECRET:-change-this-secret-key-in-production-min-32-chars}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-604800000}
 
       # CORS

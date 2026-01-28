@@ -64,3 +64,9 @@ vue/
 *.orig
 
 /pudel-core/src/main/resources/nlp/*
+
+# JWT RSA Keys (SECURITY: Never commit private keys!)
+keys/*.key
+keys/*.pem
+*.key
+!keys/README.md

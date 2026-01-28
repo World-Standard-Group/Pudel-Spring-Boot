@@ -10,7 +10,7 @@ services:
   # PostgreSQL Database
   # ===========================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     container_name: pudel-postgres
     restart: unless-stopped
     environment:
@@ -20,7 +20,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -93,7 +92,8 @@ services:
       DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost/auth/callback}
 
       # Security
-      JWT_SECRET: ${JWT_SECRET:-change-this-secret-key-in-production-min-32-chars}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-604800000}
 
       # CORS

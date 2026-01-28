@@ -24,7 +24,7 @@ RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gp
     && rm -rf /var/lib/apt/lists/*
 
 # Install Maven
-ARG MAVEN_VERSION=3.9.9
+ARG MAVEN_VERSION=3.9.12
 RUN wget -qO- https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
     | tar xzf - -C /opt \
     && ln -s /opt/apache-maven-${MAVEN_VERSION} /opt/maven
@@ -105,7 +105,8 @@ ENV DISCORD_CLIENT_SECRET=
 ENV DISCORD_REDIRECT_URI=http://localhost/auth/callback
 
 # JWT Configuration
-ENV JWT_SECRET=change-this-secret-key-in-production-min-32-chars
+ENV JWT_PRIVATE_KEY_PATH=keys/private.key
+ENV JWT_PUBLIC_KEY_PATH=keys/public.key
 ENV JWT_EXPIRATION=604800000
 
 # CORS Configuration
@@ -139,4 +140,3 @@ ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar app.jar \
     --spring.datasource.username=${POSTGRES_USER} \
     --spring.datasource.password=${POSTGRES_PASS} \
     --server.port=${SERVER_PORT}"]
-

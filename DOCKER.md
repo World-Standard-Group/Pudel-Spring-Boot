@@ -35,7 +35,8 @@ DISCORD_CLIENT_ID=your_client_id_here
 DISCORD_CLIENT_SECRET=your_client_secret_here
 
 # Security (CHANGE IN PRODUCTION)
-JWT_SECRET=your-secure-random-string-at-least-32-characters
+JWT_PRIVATE_KEY_PATH=path_private.key
+JWT_PUBLIC_KEY_PATH=path_public.key
 ```
 
 ### 3. Start the Services
@@ -80,11 +81,12 @@ docker-compose exec ollama ollama pull qwen3-embedding:8b
 | `DISCORD_REDIRECT_URI` | `http://localhost/auth/callback` | OAuth2 redirect URI |
 
 ### Security Configuration
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JWT_SECRET` | - | **Change in production.** JWT signing key (min 32 chars) |
+| Variable | Default | Description                             |
+|----------|---------|-----------------------------------------|
+| `JWT_PRIVATE_KEY_PATH` | - | Path for private key                    |
+| `JWT_PUBLIC_KEY_PATH` | - | Path for public key                     |
 | `JWT_EXPIRATION` | `604800000` | JWT expiration in milliseconds (7 days) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins            |
 
 ### Ollama LLM Configuration
 | Variable | Default | Description |

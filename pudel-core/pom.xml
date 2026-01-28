@@ -114,7 +114,7 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
-            <version>7.0.2</version>
+            <version>7.1.0-M1</version>
         </dependency>
 
         <!-- PostgreSQL Driver for persistence -->
