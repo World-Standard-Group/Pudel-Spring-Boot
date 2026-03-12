@@ -476,7 +476,7 @@ public class TextAnalyzerService {
                 "can", "just", "like", "know", "think", "want", "need", "make", "get"
         );
 
-        String cleaned = text.toLowerCase().replaceAll("<[^>]+>", " "); // Remove Discord mentions
+        String cleaned = text.toLowerCase().replaceAll("<@!?[0-9]{16,21}>", " "); // Remove Discord mentions
         String[] words = cleaned.split("\\s+");
 
         return Arrays.stream(words)

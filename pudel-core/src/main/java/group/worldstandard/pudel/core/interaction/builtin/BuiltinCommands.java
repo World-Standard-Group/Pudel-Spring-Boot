@@ -16,10 +16,7 @@ package group.worldstandard.pudel.core.interaction.builtin;
 
 import group.worldstandard.pudel.api.annotation.*;
 import group.worldstandard.pudel.api.interaction.InteractionManager;
-import group.worldstandard.pudel.api.interaction.SlashCommandHandler;
-import group.worldstandard.pudel.core.command.CommandMetadataRegistry;
 import group.worldstandard.pudel.core.command.CommandRegistry;
-import group.worldstandard.pudel.core.config.PudelPropertiesImpl;
 import group.worldstandard.pudel.core.entity.GuildSettings;
 import group.worldstandard.pudel.core.entity.PluginMetadata;
 import group.worldstandard.pudel.core.service.GuildInitializationService;
@@ -86,30 +83,24 @@ public class BuiltinCommands {
 
     // ==================== DEPENDENCIES ====================
     private final GuildInitializationService guildInitializationService;
-    private final CommandMetadataRegistry metadataRegistry;
     private final CommandRegistry commandRegistry;
     private final InteractionManager interactionManager;
     private final PluginService pluginService;
     private final GuildSettingsService guildSettingsService;
-    private final PudelPropertiesImpl pudelProperties;
 
     // ==================== STATE ====================
     private final Map<Long, SettingsSession> activeSessions = new ConcurrentHashMap<>();
 
     public BuiltinCommands(GuildInitializationService guildInitializationService,
-                           CommandMetadataRegistry metadataRegistry,
                            CommandRegistry commandRegistry,
                            InteractionManager interactionManager,
                            PluginService pluginService,
-                           GuildSettingsService guildSettingsService,
-                           PudelPropertiesImpl pudelProperties) {
+                           GuildSettingsService guildSettingsService) {
         this.guildInitializationService = guildInitializationService;
-        this.metadataRegistry = metadataRegistry;
         this.commandRegistry = commandRegistry;
         this.interactionManager = interactionManager;
         this.pluginService = pluginService;
         this.guildSettingsService = guildSettingsService;
-        this.pudelProperties = pudelProperties;
     }
 
     // =====================================================
@@ -858,83 +849,6 @@ public class BuiltinCommands {
         guildInitializationService.updateGuildSettings(session.guildId, settings);
         session.view = SettingsView.CHANNELS;
         editModalView(event, session, buildChannelsView(settings));
-    }
-
-    // =====================================================
-    // /ping
-    // =====================================================
-
-    @SlashCommand(name = "ping",
-            description = "Check bot latency",
-            nsfw = false
-    )
-    public void handlePing(SlashCommandInteractionEvent event) {
-        long ping = event.getJDA().getGatewayPing();
-        event.reply(
-                new MessageCreateBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(Container.of(
-                                TextDisplay.of("# 🏓 Pong!"),
-                                TextDisplay.of("**Gateway:** " + ping + "ms")
-                        ).withAccentColor(ACCENT_MAIN))
-                        .build()
-        ).setEphemeral(true).queue();
-    }
-
-    // =====================================================
-    // /help
-    // =====================================================
-
-    @SlashCommand(name = "help",
-            description = "Show available commands",
-            nsfw = false
-    )
-    public void handleHelp(SlashCommandInteractionEvent event) {
-        List<ContainerChildComponent> c = new ArrayList<>();
-
-        c.add(TextDisplay.of("# 📚 %s Commands".formatted(pudelProperties.getName())));
-        c.add(Separator.create(false, Separator.Spacing.SMALL));
-
-        StringBuilder builtIn = new StringBuilder();
-        StringBuilder pluginCmds = new StringBuilder();
-
-        for (SlashCommandHandler handler : interactionManager.getAllSlashCommands()) {
-            String name = handler.getCommandData().getName();
-            String desc = handler.getCommandData().getDescription();
-            if (desc.length() > 40) desc = desc.substring(0, 37) + "...";
-            String line = "`/" + name + "` — " + desc + "\n";
-
-            var metadata = metadataRegistry.getSlashCommandMetadata(name);
-            if (metadata.isPresent() && !metadata.get().isBuiltIn()) {
-                pluginCmds.append(line);
-            } else {
-                builtIn.append(line);
-            }
-        }
-
-        if (!builtIn.isEmpty()) c.add(TextDisplay.of("### ⚙️ Built-in\n" + builtIn));
-        if (!pluginCmds.isEmpty()) c.add(TextDisplay.of("### 🧩 Plugins\n" + pluginCmds));
-
-        int textCmdCount = commandRegistry.getCommandCount();
-        if (textCmdCount > 0) {
-            String prefix = "!";
-            if (event.isFromGuild() && event.getGuild() != null) {
-                GuildSettings s = guildInitializationService.getOrCreateGuildSettings(event.getGuild().getId());
-                prefix = s.getPrefix() != null ? s.getPrefix() : "!";
-            }
-            c.add(TextDisplay.of("### 📝 Text Commands\n**" + textCmdCount
-                    + "** commands available. Use `" + prefix + "help` for the full list."));
-        }
-
-        c.add(Separator.create(true, Separator.Spacing.SMALL));
-        c.add(TextDisplay.of("-# %s v%s • Use /settings to configure".formatted(pudelProperties.getName(), pudelProperties.getVersion())));
-
-        event.reply(
-                new MessageCreateBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(Container.of(c).withAccentColor(ACCENT_MAIN))
-                        .build()
-        ).setEphemeral(true).queue();
     }
 
     // =====================================================

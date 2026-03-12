@@ -206,7 +206,7 @@ pudel:
   # Local LLM for intelligent chatbot responses
   # ===========================================
   # FOR CLOUD MODELS (gemini, etc.): Set OLLAMA_TOKEN env var
-  # or run 'ollama login' / 'docker exec -it pudel-ollama ollama login'
+  # or run 'ollama signin' / 'docker exec -it pudel-ollama ollama signin'
   # ===========================================
   ollama:
     enabled: ${OLLAMA_ENABLED:true}

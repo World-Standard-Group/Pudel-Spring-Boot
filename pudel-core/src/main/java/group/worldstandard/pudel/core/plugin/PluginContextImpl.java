@@ -198,9 +198,11 @@ public class PluginContextImpl implements PluginContext {
         if (databaseManager == null) {
             synchronized (this) {
                 if (databaseManager == null) {
-                    databaseManager = databaseService.getManagerForPlugin(getPluginName(), getPluginVersion());
+                    PluginDatabaseManager newManager = databaseService.getManagerForPlugin(getPluginName(), getPluginVersion());
+
                     logger.debug("[{}] Database manager initialized with prefix: {}",
-                            getPluginName(), databaseManager.getPrefix());
+                            getPluginName(), newManager.getPrefix());
+                    databaseManager = newManager;
                 }
             }
         }

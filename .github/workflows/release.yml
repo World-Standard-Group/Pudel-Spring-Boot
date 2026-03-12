@@ -129,7 +129,9 @@ jobs:
         run: mvn javadoc:javadoc -pl pudel-api -am -Ddoclint=none -B
 
       - name: Fix Jekyll 404s
-        run: touch ./pudel-api/target/site/apidocs/.nojekyll
+        run: |
+            mkdir -p ./pudel-api/target/site/apidocs
+            touch ./pudel-api/target/site/apidocs/.nojekyll
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v4.0.0
