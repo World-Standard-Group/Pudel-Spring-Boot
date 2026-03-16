@@ -15,6 +15,7 @@
 package group.worldstandard.pudel.core.config.springboot;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import jakarta.annotation.PostConstruct;
@@ -261,10 +262,11 @@ public class JwtUtil {
                     .build()
                     .parseSignedClaims(token);
             return true;
+        } catch (ExpiredJwtException _) {
         } catch (JwtException | IllegalArgumentException e) {
             log.error("JWT validation failed", e);
-            return false;
         }
+        return false;
     }
 
     /**

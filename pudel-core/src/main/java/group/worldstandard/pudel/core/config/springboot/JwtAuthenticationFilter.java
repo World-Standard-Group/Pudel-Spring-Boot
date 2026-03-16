@@ -111,8 +111,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     if (!proofResult.valid()) {
                         log.warn("DPoP proof validation failed: {}", proofResult.error());
                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\", error_description=\"" + proofResult.error() + "\"");
-                        response.getWriter().write("{\"error\":\"invalid_dpop_proof\",\"error_description\":\"" + proofResult.error() + "\"}");
+                        response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\", error_description=\"Invalid DPoP proof\"");
+                        response.getWriter().write("{\"error\":\"invalid_dpop_proof\",\"error_description\":\"Invalid DPoP proof\"}");
                         return;
                     }
 

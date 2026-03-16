@@ -114,7 +114,7 @@ public class GuildEventListener extends ListenerAdapter {
             String introductionText = """
                             👋 Thanks for adding me to your server!
                             Use `/settings` to configure my behavior.
-                            Check out `/help` for available commands.
+                            Check out `!help` for available commands.
                             """;
 
             // Send welcome message to system channel or first text channel
