@@ -56,13 +56,11 @@ import java.util.stream.Collectors;
  * {@code /settings} opens a rich interactive Settings Panel with buttons,
  * modals, and select menus. Users navigate between views (General, AI,
  * Channels, Commands, Plugins) all within a single ephemeral message.
- * <p>
- * {@code /ping} and {@code /help} remain as standalone simple commands.
  */
 @Component
 @Plugin(
     name = "pudel-core",
-    version = "2.2.0",
+    version = "2.2.1",
     author = "World Standard Group",
     description = "Built-in Pudel commands"
 )

@@ -52,7 +52,7 @@ pudel:
   branding:
     name: ${PUDEL_BRANDING_NAME:Pudel}
     codename: ${PUDEL_BRANDING_CODENAME:Canis Lupus Familiaris}
-    version: ${PUDEL_BRANDING_VERSION:1.0.0}
+    version: ${PUDEL_BRANDING_VERSION:2.2.1}
   discord:
     token: ${DISCORD_BOT_TOKEN:}
     prefix: "!"

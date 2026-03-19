@@ -101,6 +101,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  docker-push:
+    name: Docker Image CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Build the Docker image
+        run: |
+           docker build . \
+           -t pudel:${{ github.ref_name }} \
+           -t pudel:latest
+
   deploy-docs:
     name: Deploy Javadocs
     needs: publish-api

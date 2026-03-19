@@ -106,9 +106,9 @@ else
 
     echo -e "\n${YELLOW}[3/5] Stopping current containers...${NC}"
     if [ "$OLLAMA_ENABLED" = "true" ]; then
-        docker compose --profile ollama down
+        docker compose --profile ollama stop
     else
-        docker compose down
+        docker compose stop
     fi
 
     echo -e "\n${YELLOW}[4/5] Rebuilding Docker images...${NC}"

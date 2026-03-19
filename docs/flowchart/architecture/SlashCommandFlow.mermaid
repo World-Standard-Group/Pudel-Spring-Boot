@@ -1,4 +1,4 @@
-%% Pudel Slash Command Flow v2.1.1
+%% Pudel Slash Command Flow v2.2.1
 %% Two-Tier Sync + Components V2 Settings Panel
 
 sequenceDiagram
@@ -46,14 +46,6 @@ sequenceDiagram
             Manager->>Discord: guild.updateCommands().submit()
             Discord->>User: Plugin slash commands disappear
 
-        else /ping (Components V2)
-            Handler->>Discord: reply(Container with latency)
-            Discord->>User: Show latency panel
-
-        else /help (Components V2)
-            Handler->>Discord: reply(Container with command list)
-            Discord->>User: Show commands panel
-
         else Plugin Command
             alt Simple Response
                 Handler->>Discord: event.reply("Response")
@@ -73,5 +65,5 @@ sequenceDiagram
     Note over User,Brain: Command Registration Strategy
 
     rect rgb(40, 60, 40)
-        Note right of Manager: Core commands: registered GLOBALLY<br/>(/settings, /ping, /help)<br/><br/>Plugin commands: registered PER-GUILD<br/>Filtered by guild_settings.disabled_plugins<br/><br/>syncCommands() separates core vs plugin<br/>syncGuildCommands(id) updates one guild
+        Note right of Manager: Core commands: registered GLOBALLY<br/>(/settings)<br/><br/>Plugin commands: registered PER-GUILD<br/>Filtered by guild_settings.disabled_plugins<br/><br/>syncCommands() separates core vs plugin<br/>syncGuildCommands(id) updates one guild
     end

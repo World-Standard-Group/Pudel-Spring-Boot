@@ -1,4 +1,4 @@
-# Pudel Architecture v2.1.1
+# Pudel Architecture v2.2.1
 
 This document describes the complete architecture of Pudel Discord Bot — reflecting the current implementation with Components V2 interactive panels, two-tier plugin control (admin global + guild local), per-guild command sync, and the annotation-based plugin system.
 
@@ -29,7 +29,7 @@ This document describes the complete architecture of Pudel Discord Bot — refle
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│                             PUDEL DISCORD BOT v2.1.1                          │
+│                             PUDEL DISCORD BOT v2.2.1                          │
 ├───────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │  ┌────────────────────┐       ┌─────────────────────┐       ┌──────────────┐  │
@@ -134,7 +134,7 @@ pudel/
 │   │   ├── InteractionManagerImpl.java  # Two-tier sync (global + per-guild)
 │   │   ├── InteractionEventListener.java
 │   │   └── builtin/
-│   │       ├── BuiltinCommands.java          # Components V2 /settings panel + /ping + /help
+│   │       ├── BuiltinCommands.java          # Components V2 /settings panel
 │   │       ├── BuiltinTextCommands.java      # !ping + !help (with paged navigation)
 │   │       ├── BuiltinAgentTools.java        # AI agent data management tools
 │   │       └── BuiltinSlashCommandRegistrar.java  # Registers all 3 at startup
@@ -313,15 +313,13 @@ BuiltinCommands.handlePluginToggle()
 
 ## Command System
 
-### Built-in Commands (v2.1.1)
+### Built-in Commands (v2.2.1)
 
 **Slash Commands** (`BuiltinCommands` — `pudel-core`):
 
 | Command | Description | Scope |
 |---------|-------------|-------|
 | `/settings` | Components V2 interactive Settings Panel | Global |
-| `/ping` | Bot latency (Components V2) | Global |
-| `/help` | Available commands overview (Components V2) | Global |
 
 **Text Commands** (`BuiltinTextCommands` — `pudel-core-text`):
 
@@ -678,4 +676,4 @@ See: [AdminMutualAuth.mermaid](./AdminMutualAuth.mermaid)
 
 ---
 
-*Last updated: 2026-03-02 for Pudel v2.1.1*
+*Last updated: 2026-03-18 for Pudel v2.2.1*

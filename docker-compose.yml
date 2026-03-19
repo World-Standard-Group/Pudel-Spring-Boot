@@ -9,6 +9,11 @@ services:
   # ===========================================
   postgres:
     image: pgvector/pgvector:pg18
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     container_name: pudel-postgres
     restart: unless-stopped
     environment:
@@ -42,6 +47,11 @@ services:
   # ===========================================
   ollama:
     image: ollama/ollama:latest
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     container_name: pudel-ollama
     restart: unless-stopped
     profiles:
@@ -84,6 +94,11 @@ services:
         GIT_REPO: ${GIT_REPO:-https://github.com/World-Standard-Group/Pudel-Spring-Boot.git}
         GIT_BRANCH: ${GIT_BRANCH:-main}
     image: pudel-bot:latest
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     container_name: pudel-bot
     restart: unless-stopped
     depends_on:
@@ -185,6 +200,11 @@ services:
   # ===========================================
   pudel-updater:
     image: docker:cli
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     container_name: pudel-updater
     restart: "no"
     volumes:

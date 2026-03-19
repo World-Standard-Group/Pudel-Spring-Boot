@@ -2,8 +2,8 @@
 
 **Project**: Pudel Discord Bot  
 **Maintainer**: World Standard Group  
-**Version**: v2.2.0
-**Last Updated**: March 7, 2026
+**Version**: Since v2.2.1
+**Last Updated**: March 18, 2026
 
 ---
 

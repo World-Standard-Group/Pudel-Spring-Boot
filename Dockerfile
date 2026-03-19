@@ -34,7 +34,7 @@ FROM ${JDK_VENDOR}:${JDK_VERSION}-jdk AS runtime
 
 LABEL maintainer="World Standard Group"
 LABEL description="Pudel Discord Bot - AI Assistant with Plugin System"
-LABEL version="2.2.0"
+LABEL version="2.2.1"
 
 # Re-declare global ARGs needed in this stage (ARGs don't cross FROM boundaries)
 ARG BUILDER_VERSION=3.9.12

@@ -91,15 +91,12 @@ public class JwtUtil {
      * Load private key from PEM file.
      */
     private PrivateKey loadPrivateKey(String path) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        String keyContent = Files.readString(Path.of(path));
-        String privateKeyPEM = keyContent
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-                .replace("-----END RSA PRIVATE KEY-----", "")
-                .replaceAll("\\s", "");
-
-        byte[] keyBytes = Base64.getDecoder().decode(privateKeyPEM);
+        byte[] keyBytes = readPemKeyBytes(path, new String[]{
+                "-----BEGIN PRIVATE KEY-----",
+                "-----END PRIVATE KEY-----",
+                "-----BEGIN RSA PRIVATE KEY-----",
+                "-----END RSA PRIVATE KEY-----"
+        });
         PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
         return keyFactory.generatePrivate(spec);
@@ -109,18 +106,28 @@ public class JwtUtil {
      * Load public key from PEM file.
      */
     private PublicKey loadPublicKey(String path) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        String keyContent = Files.readString(Path.of(path));
-        String publicKeyPEM = keyContent
-                .replace("-----BEGIN PUBLIC KEY-----", "")
-                .replace("-----END PUBLIC KEY-----", "")
-                .replace("-----BEGIN RSA PUBLIC KEY-----", "")
-                .replace("-----END RSA PUBLIC KEY-----", "")
-                .replaceAll("\\s", "");
-
-        byte[] keyBytes = Base64.getDecoder().decode(publicKeyPEM);
+        byte[] keyBytes = readPemKeyBytes(path, new String[]{
+                "-----BEGIN PRIVATE KEY-----",
+                "-----END PRIVATE KEY-----",
+                "-----BEGIN RSA PRIVATE KEY-----",
+                "-----END RSA PRIVATE KEY-----"
+        });
         X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
         return keyFactory.generatePublic(spec);
+    }
+
+    /**
+     * Read a PEM-encoded key file, strip the provided headers/footers and
+     * whitespace, and return the decoded key bytes.
+     */
+    private byte[] readPemKeyBytes(String path, String[] headers) throws IOException {
+        String keyContent = Files.readString(Path.of(path));
+        for (String header : headers) {
+            keyContent = keyContent.replace(header, "");
+        }
+        String pemBody = keyContent.replaceAll("\\s", "");
+        return Base64.getDecoder().decode(pemBody);
     }
 
     /**
@@ -231,7 +238,10 @@ public class JwtUtil {
                     .getPayload()
                     .getSubject();
         } catch (JwtException | IllegalArgumentException e) {
-            log.error("Could not get user ID from token", e);
+            log.error("Could not get user ID from token ({}: {})",
+                    e.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
             return null;
         }
     }
@@ -247,7 +257,10 @@ public class JwtUtil {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (JwtException | IllegalArgumentException e) {
-            log.error("Could not get claims from token", e);
+            log.error("Could not get claims from token ({}: {})",
+                    e.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
             return null;
         }
     }
@@ -264,7 +277,10 @@ public class JwtUtil {
             return true;
         } catch (ExpiredJwtException _) {
         } catch (JwtException | IllegalArgumentException e) {
-            log.error("JWT validation failed", e);
+            log.error("JWT validation failed ({}: {})",
+                    e.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
         }
         return false;
     }
@@ -281,7 +297,10 @@ public class JwtUtil {
                     .getPayload()
                     .getExpiration();
         } catch (JwtException | IllegalArgumentException e) {
-            log.error("Could not get expiration date from token", e);
+            log.error("Could not get expiration date from token ({}: {})",
+                    e.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
             return null;
         }
     }

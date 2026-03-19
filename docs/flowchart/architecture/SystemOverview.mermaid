@@ -16,7 +16,7 @@ flowchart TB
         CV2["Components V2<br/>Buttons / Modals /<br/>EntitySelectMenu"]
     end
 
-    subgraph Pudel["🐩 Pudel v2.1.1"]
+    subgraph Pudel["🐩 Pudel v2.2.1"]
         subgraph Core["pudel-core"]
             JDA["JDA 6<br/>(Discord API)"]
             SPRING["Spring Boot 4"]
@@ -29,7 +29,7 @@ flowchart TB
             end
 
             subgraph Commands["Command System"]
-                BUILTIN["BuiltinCommands<br/>Components V2 Panel<br/>/settings /ping /help"]
+                BUILTIN["BuiltinCommands<br/>Components V2 Panel<br/>/settings"]
                 INTERACT_MGR["InteractionManagerImpl<br/>Two-tier sync:<br/>core→global, plugin→guild"]
                 CMD_REG["CommandRegistry"]
             end

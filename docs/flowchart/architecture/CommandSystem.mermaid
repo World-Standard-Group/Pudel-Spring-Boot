@@ -1,4 +1,4 @@
-%% Pudel Command System v2.1.1
+%% Pudel Command System v2.2.1
 %% Components V2 + Two-Tier Sync + Unified Built-in Architecture
 
 flowchart TD
@@ -12,7 +12,7 @@ flowchart TD
     subgraph SlashFlow["⚡ Slash Command Flow"]
         SLASH_LISTENER["InteractionEventListener"]
         SLASH_MANAGER["InteractionManagerImpl<br/>(lookup handler)"]
-        SLASH_BUILTIN["BuiltinCommands<br/>(pudel-core)<br/>/settings /ping /help"]
+        SLASH_BUILTIN["BuiltinCommands<br/>(pudel-core)<br/>/settings"]
         SLASH_PLUGIN["Plugin Class<br/>@SlashCommand"]
     end
 
