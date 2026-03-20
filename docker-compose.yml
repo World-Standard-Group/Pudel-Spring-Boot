@@ -109,6 +109,7 @@ services:
     environment:
       # Server
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      SWAGGER_ACCESS_PROTECTED: ${SWAGGER_ACCESS_PROTECTED:-true}
       AUTO_UPDATE: ${AUTO_UPDATE:-true}
       GIT_REPO: ${GIT_REPO:-https://github.com/World-Standard-Group/Pudel-Spring-Boot.git}
       GIT_BRANCH: ${GIT_BRANCH:-main}

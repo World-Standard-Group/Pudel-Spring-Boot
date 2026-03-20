@@ -79,6 +79,14 @@ pudel:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost}
 
   # ===========================================
+  # Swagger / OpenAPI Access Protection
+  # When true, Swagger UI requires admin crypto challenge auth
+  # When false, Swagger UI is publicly accessible (dev mode)
+  # ===========================================
+  swagger:
+    access-protected: ${SWAGGER_ACCESS_PROTECTED:true}
+
+  # ===========================================
   # Ownership Configuration
   # Owner's RSA public key for mutual authentication (separate from JWT keys)
   # The owner keeps their private key secure and uses it to sign admin challenges

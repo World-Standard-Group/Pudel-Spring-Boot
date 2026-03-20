@@ -17,6 +17,8 @@ package group.worldstandard.pudel.core.service;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+
+import static net.dv8tion.jda.api.entities.Message.MentionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -132,6 +134,19 @@ public class ChatbotService {
         // Use message parser for mention detection
         ParseResult parseResult = messageParser.parseMessage(event);
 
+        // Guard: Ignore @everyone and @here unless the bot is ALSO directly addressed.
+        // Discord's mention state flags every server member as "mentioned" by @everyone/@here.
+        // JDA's isMentioned() without MentionType filter returns true for these mass mentions,
+        // which caused Pudel to respond to every @everyone/@here message.
+        //
+        // We check isMassMention via JDA's MentionType.EVERYONE/HERE (protocol-level state),
+        // NOT text matching. If the bot is also directly mentioned by ID, name, or reply,
+        // we allow the response (e.g., "@everyone @Pudel help" or "@everyone hey pudel").
+        if (parseResult.isMassMention() && !parseResult.isDirectlyAddressed()) {
+            logger.debug("Ignoring mass mention (@everyone/@here) — bot not directly addressed");
+            return false;
+        }
+
         // Check if bot was mentioned by ID
         if (chatbotConfig.getTriggers().isOnMention() && parseResult.mentionsBotById()) {
             logger.debug("Bot mentioned by ID in message from {}", event.getAuthor().getName());
@@ -150,8 +165,9 @@ public class ChatbotService {
             return true;
         }
 
-        // Fallback: JDA mention check
-        if (chatbotConfig.getTriggers().isOnMention() && message.getMentions().isMentioned(event.getJDA().getSelfUser())) {
+        // Fallback: JDA mention check (USER type only — excludes @everyone/@here)
+        if (chatbotConfig.getTriggers().isOnMention() &&
+                message.getMentions().isMentioned(event.getJDA().getSelfUser(), MentionType.USER)) {
             return true;
         }
 

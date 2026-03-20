@@ -14,10 +14,12 @@
  */
 package group.worldstandard.pudel.core.controller;
 
+import group.worldstandard.pudel.core.config.springboot.SwaggerAccessFilter;
 import group.worldstandard.pudel.core.entity.AdminWhitelist;
 import group.worldstandard.pudel.core.entity.AdminWhitelist.AdminRole;
 import group.worldstandard.pudel.core.entity.PluginMetadata;
 import group.worldstandard.pudel.core.repository.AdminWhitelistRepository;
+import group.worldstandard.pudel.core.service.LogService;
 import group.worldstandard.pudel.core.service.PluginService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -25,10 +27,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.File;
 import java.io.IOException;
@@ -91,6 +97,7 @@ public class AdminController {
 
     private final PluginService pluginService;
     private final AdminWhitelistRepository adminWhitelistRepository;
+    private final LogService logService;
 
     // Pending challenges: challengeId -> ChallengeData
     private final Map<String, ChallengeData> pendingChallenges = new ConcurrentHashMap<>();
@@ -116,9 +123,12 @@ public class AdminController {
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
-    public AdminController(PluginService pluginService, AdminWhitelistRepository adminWhitelistRepository) {
+    public AdminController(PluginService pluginService,
+                           AdminWhitelistRepository adminWhitelistRepository,
+                           LogService logService) {
         this.pluginService = pluginService;
         this.adminWhitelistRepository = adminWhitelistRepository;
+        this.logService = logService;
     }
 
     // =====================================================
@@ -662,6 +672,217 @@ public class AdminController {
         }
 
         return ResponseEntity.ok(new SuccessResponse("Logged out successfully"));
+    }
+
+    // =====================================================
+    // Swagger Access Authorization
+    // =====================================================
+
+    /**
+     * Authorize Swagger UI access for an authenticated admin.
+     * POST /api/admin/swagger/authorize
+     * <p>
+     * Requires a valid AdminJWT (obtained via the mutual RSA crypto challenge flow).
+     * Sets a {@code pudel-swagger-session} HttpOnly cookie that grants access to
+     * Swagger UI and OpenAPI docs endpoints.
+     * <p>
+     * <b>Flow:</b>
+     * <ol>
+     *   <li>Admin completes crypto challenge → receives AdminJWT</li>
+     *   <li>Admin calls this endpoint with {@code Authorization: Bearer <AdminJWT>}</li>
+     *   <li>Server validates admin session and issues a swagger session cookie</li>
+     *   <li>Admin opens {@code /swagger-ui.html} → SwaggerAccessFilter checks cookie → granted</li>
+     * </ol>
+     */
+    @PostMapping("/swagger/authorize")
+    public ResponseEntity<?> authorizeSwaggerAccess(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            AdminSessionData session = validateAdminSession(authHeader);
+            if (session == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ErrorResponse(
+                                "Valid admin session required. Complete the crypto challenge first: GET /api/admin/challenge"));
+            }
+
+            ensureKeysLoaded();
+
+            // Generate a swagger-session JWT (short-lived, cookie-bound)
+            long expiry = SwaggerAccessFilter.SWAGGER_SESSION_EXPIRY_MS;
+            String swaggerToken = Jwts.builder()
+                    .subject(SwaggerAccessFilter.SWAGGER_SESSION_SUBJECT)
+                    .claim("discordUserId", session.discordUserId)
+                    .claim("adminRole", session.adminRole.name())
+                    .claim("sessionId", session.sessionId)
+                    .issuedAt(new Date())
+                    .expiration(new Date(System.currentTimeMillis() + expiry))
+                    .signWith(privateKey, Jwts.SIG.RS256)
+                    .compact();
+
+            // Build HttpOnly cookie
+            ResponseCookie cookie = ResponseCookie
+                    .from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, swaggerToken)
+                    .httpOnly(true)
+                    .secure(false) // Set to true in production (requires HTTPS)
+                    .sameSite("Lax")
+                    .path("/")
+                    .maxAge(expiry / 1000)
+                    .build();
+
+            log.info("Swagger access authorized for admin: {} ({})",
+                    session.discordUserId, session.adminRole);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Swagger UI access authorized. Cookie set.");
+            response.put("swaggerUrl", "/swagger-ui.html");
+            response.put("expiresIn", expiry / 1000);
+            response.put("adminRole", session.adminRole.name());
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .body(response);
+        } catch (Exception e) {
+            log.error("Failed to authorize swagger access", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Failed to authorize swagger access: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Revoke Swagger UI access by clearing the session cookie.
+     * DELETE /api/admin/swagger/authorize
+     */
+    @DeleteMapping("/swagger/authorize")
+    public ResponseEntity<?> revokeSwaggerAccess() {
+        // Clear the cookie by setting max-age to 0
+        ResponseCookie cookie = ResponseCookie
+                .from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, "")
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(0)
+                .build();
+
+        log.info("Swagger access cookie cleared");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(new SuccessResponse("Swagger UI access revoked. Cookie cleared."));
+    }
+
+    // =====================================================
+    // Log Viewer
+    // =====================================================
+
+    /**
+     * Get recent application log entries.
+     * GET /api/admin/logs?count=500&level=INFO
+     *
+     * @param count maximum number of entries to return (default 500)
+     * @param level minimum log level filter: ERROR, WARN, INFO, DEBUG (default: all)
+     */
+    @GetMapping("/logs")
+    public ResponseEntity<?> getLogs(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(defaultValue = "500") int count,
+            @RequestParam(required = false) String level) {
+
+        AdminSessionData session = validateAdminSession(authHeader);
+        if (session == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Invalid or missing admin token"));
+        }
+
+        try {
+            var entries = logService.getRecentLogs(Math.min(count, 5000), level);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("entries", entries);
+            response.put("count", entries.size());
+            response.put("stats", logService.getStats());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error fetching logs", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Failed to fetch logs: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Stream application logs in real-time via Server-Sent Events (SSE).
+     * GET /api/admin/logs/stream?token=<AdminJWT>&history=true
+     * <p>
+     * Uses query parameter for authentication since EventSource API
+     * does not support custom headers.
+     *
+     * @param token AdminJWT token (required, passed as query param)
+     * @param history if true, sends the last 200 entries before streaming live
+     */
+    @GetMapping(value = "/logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamLogs(
+            @RequestParam(value = "token") String token,
+            @RequestParam(defaultValue = "true") boolean history) {
+
+        // Validate admin token from query parameter
+        AdminSessionData session = validateAdminSession("Bearer " + token);
+        if (session == null) {
+            SseEmitter emitter = new SseEmitter(0L);
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data(Map.of("error", "Unauthorized", "message", "Invalid admin token")));
+                emitter.complete();
+            } catch (IOException ignored) {}
+            return emitter;
+        }
+
+        log.info("Admin log stream started by: {} ({})", session.discordUserId, session.adminRole);
+        return logService.createStream(history);
+    }
+
+    /**
+     * Get log buffer statistics.
+     * GET /api/admin/logs/stats
+     */
+    @GetMapping("/logs/stats")
+    public ResponseEntity<?> getLogStats(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+
+        AdminSessionData session = validateAdminSession(authHeader);
+        if (session == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Invalid or missing admin token"));
+        }
+
+        return ResponseEntity.ok(logService.getStats());
+    }
+
+    /**
+     * Clear the in-memory log buffer.
+     * DELETE /api/admin/logs
+     */
+    @DeleteMapping("/logs")
+    public ResponseEntity<?> clearLogs(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+
+        AdminSessionData session = validateAdminSession(authHeader);
+        if (session == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Invalid or missing admin token"));
+        }
+
+        if (!session.canModify()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ErrorResponse("Insufficient permissions to clear logs"));
+        }
+
+        logService.clearLogs();
+        log.info("Log buffer cleared by admin: {}", session.discordUserId);
+
+        return ResponseEntity.ok(new SuccessResponse("Log buffer cleared"));
     }
 
     /**

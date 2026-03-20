@@ -173,6 +173,11 @@ public class PluginClassLoader {
             jarFiles.put(pluginName, jarFile);
             fileHashes.put(pluginName, fileHash);
 
+            // Dynamically register a DEBUG-level logger for the plugin's package
+            // so that third-party plugin developers' logs are captured regardless
+            // of their package name (e.g., com.myplugin, org.example.bot)
+            PluginLoggerManager.registerPluginLogger(pluginName, mainClassName);
+
             logger.info("Successfully loaded plugin: {} v{} by {}",
                        pluginName, info.getVersion(), info.getAuthor());
             return info;
@@ -228,12 +233,11 @@ public class PluginClassLoader {
             }
 
             // 3. Scan for @Plugin annotated classes
-            URLClassLoader tempLoader = new URLClassLoader(
+
+            try (URLClassLoader tempLoader = new URLClassLoader(
                     new URL[]{jarFile.toURI().toURL()},
                     Thread.currentThread().getContextClassLoader()
-            );
-
-            try {
+            )) {
                 for (Enumeration<JarEntry> entries = jar.entries(); entries.hasMoreElements(); ) {
                     JarEntry entry = entries.nextElement();
 
@@ -254,8 +258,6 @@ public class PluginClassLoader {
                         }
                     }
                 }
-            } finally {
-                tempLoader.close();
             }
 
             // 4. Fall back to naming patterns
@@ -345,6 +347,9 @@ public class PluginClassLoader {
      * Unload a plugin and release resources.
      */
     public void unloadPlugin(String pluginName) {
+        // Deregister dynamic logger for the plugin's package
+        PluginLoggerManager.deregisterPluginLogger(pluginName);
+
         loadedPlugins.remove(pluginName);
         pluginInfos.remove(pluginName);
         jarFiles.remove(pluginName);

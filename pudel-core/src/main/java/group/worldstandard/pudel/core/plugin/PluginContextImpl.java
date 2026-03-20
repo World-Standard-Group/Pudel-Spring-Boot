@@ -40,7 +40,11 @@ import group.worldstandard.pudel.core.event.PluginEventManager;
  * Each plugin gets its own context instance with its plugin name.
  */
 public class PluginContextImpl implements PluginContext {
+    /** Internal logger for PluginContextImpl operational messages (command registration, etc.) */
     private static final Logger logger = LoggerFactory.getLogger(PluginContextImpl.class);
+
+    /** Per-plugin logger used by {@link #log(String, String, Throwable)} — gives each plugin its own identity in logs. */
+    private final Logger pluginLogger;
 
     private final PluginInfo info;
     private final PudelProperties pudel;
@@ -68,6 +72,11 @@ public class PluginContextImpl implements PluginContext {
         this.agentToolRegistry = agentToolRegistry;
         this.interactionManager = interactionManager;
         this.databaseService = databaseService;
+
+        // Create a dedicated logger for this plugin so log output is attributed
+        // to "Plugin.<name>" instead of the generic PluginContextImpl class.
+        // This makes the LogEntry.logger field meaningful for admin log filtering.
+        this.pluginLogger = LoggerFactory.getLogger("Plugin." + info.getName());
     }
 
     private String getPluginName() {
@@ -222,14 +231,26 @@ public class PluginContextImpl implements PluginContext {
             return;
         }
 
-        String formattedMessage = "[" + getPluginName() + "] " + message;
-
-        switch (level.toLowerCase()) {
-            case "debug" -> logger.debug(formattedMessage, throwable);
-            case "info" -> logger.info(formattedMessage, throwable);
-            case "warn" -> logger.warn(formattedMessage, throwable);
-            case "error" -> logger.error(formattedMessage, throwable);
-            default -> logger.info(formattedMessage, throwable);
+        // Use the per-plugin logger so the LogEntry.logger field shows "Plugin.<name>"
+        // instead of the generic "PluginContextImpl". This allows the admin log viewer
+        // and InMemoryLogAppender to structurally identify which plugin produced the log.
+        switch (level == null ? "info" : level.toLowerCase()) {
+            case "debug" -> {
+                if (throwable != null) pluginLogger.debug(message, throwable);
+                else pluginLogger.debug(message);
+            }
+            case "warn" -> {
+                if (throwable != null) pluginLogger.warn(message, throwable);
+                else pluginLogger.warn(message);
+            }
+            case "error" -> {
+                if (throwable != null) pluginLogger.error(message, throwable);
+                else pluginLogger.error(message);
+            }
+            default -> { // "info" and any unrecognized level
+                if (throwable != null) pluginLogger.info(message, throwable);
+                else pluginLogger.info(message);
+            }
         }
     }
 }

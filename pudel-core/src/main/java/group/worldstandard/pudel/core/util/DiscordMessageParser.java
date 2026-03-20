@@ -21,6 +21,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.regex.Pattern;
 
+import static net.dv8tion.jda.api.entities.Message.MentionType;
+
 /**
  * Discord message parsing utility for detecting bot mentions, replies, and other patterns.
  * Uses JDA-native approach for efficient message parsing.
@@ -30,15 +32,29 @@ public class DiscordMessageParser {
 
     /**
      * Parse result containing information about bot mentions and reply context.
+     * <p>
+     * {@code isMassMention} is true when the message uses {@code @everyone} or {@code @here},
+     * detected via JDA's mention state (not text matching). This flag indicates the bot
+     * was "mentioned" only because it happens to be a server member, not because it was
+     * directly addressed. Callers should treat mass mentions differently from direct mentions.
      */
     public record ParseResult(
             boolean mentionsBotById,
             boolean mentionsBotByName,
             boolean isReplyToBot,
+            boolean isMassMention,
             String referencedContent
     ) {
         public boolean mentionsBot() {
             return mentionsBotById || mentionsBotByName;
+        }
+
+        /**
+         * True when the bot is directly addressed (by ID, name, or reply),
+         * as opposed to being passively included in a mass mention.
+         */
+        public boolean isDirectlyAddressed() {
+            return mentionsBotById || mentionsBotByName || isReplyToBot;
         }
     }
 
@@ -50,8 +66,20 @@ public class DiscordMessageParser {
         String content = message.getContentRaw().toLowerCase();
         String selfId = event.getJDA().getSelfUser().getId();
 
+        // Detect mass mentions (@everyone / @here) via JDA's mention state.
+        // This is a protocol-level check — Discord sets a flag on the message payload,
+        // JDA exposes it through MentionType.EVERYONE and MentionType.HERE.
+        // We must NOT use text matching (content.contains("@everyone")) because:
+        //   - Users without permission to ping @everyone still have the text in raw content
+        //   - Text matching misses edge cases in Discord's rendering
+        boolean isMassMention = message.getMentions().isMentioned(
+                event.getJDA().getSelfUser(), MentionType.EVERYONE, MentionType.HERE);
+
         // Check for bot mention by ID (using JDA)
-        boolean mentionedById = message.getMentions().isMentioned(event.getJDA().getSelfUser());
+        // Use MentionType.USER to only match direct @bot mentions,
+        // ignoring @everyone and @here which mention all members indiscriminately
+        boolean mentionedById = message.getMentions().isMentioned(
+                event.getJDA().getSelfUser(), MentionType.USER);
 
         // Check for bot mention by name/nickname
         boolean mentionedByName;
@@ -80,7 +108,7 @@ public class DiscordMessageParser {
             referencedContent = referenced.getContentRaw();
         }
 
-        return new ParseResult(mentionedById, mentionedByName, isReplyToBot, referencedContent);
+        return new ParseResult(mentionedById, mentionedByName, isReplyToBot, isMassMention, referencedContent);
     }
 
     /**

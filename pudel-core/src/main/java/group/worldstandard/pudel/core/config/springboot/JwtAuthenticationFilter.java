@@ -157,6 +157,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         return path.startsWith("/api/auth/discord/")
                 || path.startsWith("/api/bot/")
+                || path.equals("/api/admin/logs/stream") // SSE uses query param token auth
                 || (path.equals("/api/plugins") && "GET".equals(request.getMethod()))
                 || (path.equals("/api/plugins/installed") && "GET".equals(request.getMethod()))
                 || (path.matches("/api/plugins/installed/[^/]+") && "GET".equals(request.getMethod()))

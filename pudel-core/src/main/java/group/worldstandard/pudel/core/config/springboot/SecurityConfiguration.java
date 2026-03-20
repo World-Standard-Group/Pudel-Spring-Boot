@@ -40,9 +40,12 @@ public class SecurityConfiguration {
     private List<String> allowedOrigins;
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final SwaggerAccessFilter swaggerAccessFilter;
 
-    public SecurityConfiguration(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfiguration(JwtAuthenticationFilter jwtAuthenticationFilter,
+                                 SwaggerAccessFilter swaggerAccessFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.swaggerAccessFilter = swaggerAccessFilter;
     }
 
 
@@ -63,7 +66,10 @@ public class SecurityConfiguration {
                                 // Admin public endpoints (for challenge/key fetching)
                                 "/api/admin/challenge",
                                 "/api/admin/public-key",
-                                // OpenAPI / Swagger UI (docs are public, admin panel gates access)
+                                // SSE log stream (uses query param token auth internally)
+                                "/api/admin/logs/stream",
+                                // OpenAPI / Swagger UI (permitAll at Spring Security level;
+                                // SwaggerAccessFilter gates actual access via admin crypto challenge cookie)
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
@@ -92,6 +98,7 @@ public class SecurityConfiguration {
                         // Everything else
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(swaggerAccessFilter, JwtAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {

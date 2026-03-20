@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pudel - A Moderate Discord Chat Bot
+  Logback configuration with in-memory ring buffer appender
+  for admin log viewer streaming.
+-->
+<configuration>
+
+    <!-- Read log levels from application.yml via Spring properties -->
+    <springProperty scope="context" name="ROOT_LOG_LEVEL" source="logging.level.root" defaultValue="INFO" />
+
+    <!-- Console appender (default Spring Boot output) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- In-memory ring buffer appender for admin log viewer -->
+    <appender name="IN_MEMORY" class="group.worldstandard.pudel.core.service.InMemoryLogAppender" />
+
+    <!-- Logger levels (matching application.yml) -->
+    <logger name="worldstandard.group" level="DEBUG" />
+
+    <!--
+      Plugin logger levels are registered DYNAMICALLY at runtime.
+
+      When a plugin JAR is loaded, PluginLoggerManager automatically detects
+      the plugin's package from its main class (e.g., com.myplugin, org.example.bot)
+      and registers a Logback logger at DEBUG level for that package.
+
+      This ensures third-party plugin developers using any package name will
+      have their DEBUG-level logs captured by the InMemoryLogAppender and
+      streamed to the admin log viewer — no manual configuration needed.
+
+      Loggers are cleaned up when the plugin is unloaded.
+      See: PluginLoggerManager.java
+    -->
+
+    <!-- Suppress noisy frameworks -->
+    <logger name="org.hibernate.SQL" level="WARN" />
+    <logger name="org.hibernate.type.descriptor.sql" level="WARN" />
+    <logger name="org.springframework.web.servlet.mvc.method.annotation.SseEmitter" level="WARN" />
+    <logger name="org.apache.coyote.http11" level="WARN" />
+
+    <root level="${ROOT_LOG_LEVEL}">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="IN_MEMORY" />
+    </root>
+
+</configuration>
+

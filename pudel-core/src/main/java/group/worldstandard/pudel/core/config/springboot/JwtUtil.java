@@ -275,7 +275,8 @@ public class JwtUtil {
                     .build()
                     .parseSignedClaims(token);
             return true;
-        } catch (ExpiredJwtException _) {
+        } catch (ExpiredJwtException e) {
+            log.warn(e.getMessage());
         } catch (JwtException | IllegalArgumentException e) {
             log.error("JWT validation failed ({}: {})",
                     e.getClass().getSimpleName(),
