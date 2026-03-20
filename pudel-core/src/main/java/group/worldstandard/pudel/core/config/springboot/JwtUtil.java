@@ -107,10 +107,10 @@ public class JwtUtil {
      */
     private PublicKey loadPublicKey(String path) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         byte[] keyBytes = readPemKeyBytes(path, new String[]{
-                "-----BEGIN PRIVATE KEY-----",
-                "-----END PRIVATE KEY-----",
-                "-----BEGIN RSA PRIVATE KEY-----",
-                "-----END RSA PRIVATE KEY-----"
+                "-----BEGIN PUBLIC KEY-----",
+                "-----END PUBLIC KEY-----",
+                "-----BEGIN RSA PUBLIC KEY-----",
+                "-----END RSA PUBLIC KEY-----"
         });
         X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");

@@ -46,6 +46,11 @@ import java.io.IOException;
  * </ol>
  * <p>
  * Can be disabled by setting {@code pudel.swagger.access-protected=false}.
+ * <p>
+ * Query-parameter token support ({@code ?swaggerToken=...}) is disabled by default because
+ * URLs leak via browser history, server logs, proxy logs, and {@code Referer} headers.
+ * Enable it explicitly with {@code pudel.swagger.allow-query-token=true}; tokens passed
+ * this way are validated against a much shorter TTL ({@link #SWAGGER_QUERY_TOKEN_EXPIRY_MS}).
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -57,10 +62,28 @@ public class SwaggerAccessFilter extends OncePerRequestFilter {
     public static final String SWAGGER_SESSION_SUBJECT = "pudel-swagger-session";
     public static final long SWAGGER_SESSION_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
+    /**
+     * Subject claim value used for short-lived query-parameter tokens.
+     */
+    public static final String SWAGGER_QUERY_TOKEN_SUBJECT = "pudel-swagger-query";
+
+    /**
+     * Maximum lifetime for tokens delivered via query parameter (30 seconds).
+     * Kept intentionally very short to limit the window of exposure.
+     */
+    public static final long SWAGGER_QUERY_TOKEN_EXPIRY_MS = 30 * 1000; // 30 seconds
+
     private final JwtUtil jwtUtil;
 
     @Value("${pudel.swagger.access-protected:true}")
     private boolean accessProtected;
+
+    /**
+     * Whether query-parameter token authentication ({@code ?swaggerToken=...}) is allowed.
+     * Disabled by default — URLs can leak via logs, browser history, proxies, and Referer headers.
+     */
+    @Value("${pudel.swagger.allow-query-token:false}")
+    private boolean allowQueryToken;
 
     public SwaggerAccessFilter(JwtUtil jwtUtil) {
         this.jwtUtil = jwtUtil;
@@ -78,22 +101,32 @@ public class SwaggerAccessFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Check for token in cookie
-        String token = extractTokenFromCookie(request);
-
-        // Fallback: check query parameter (for programmatic access)
-        if (token == null) {
-            token = request.getParameter("swaggerToken");
-        }
-
-        if (token != null) {
-            Claims claims = jwtUtil.getClaimsFromToken(token);
+        // 1. Cookie-based auth (preferred — HttpOnly, Secure, SameSite)
+        String cookieToken = extractTokenFromCookie(request);
+        if (cookieToken != null) {
+            Claims claims = jwtUtil.getClaimsFromToken(cookieToken);
             if (claims != null && SWAGGER_SESSION_SUBJECT.equals(claims.getSubject())) {
-                log.debug("Swagger access granted for admin: {}", claims.get("discordUserId"));
+                log.debug("Swagger access granted via cookie for admin: {}", claims.get("discordUserId"));
                 filterChain.doFilter(request, response);
                 return;
             }
-            log.warn("Invalid swagger session token presented");
+            log.warn("Invalid swagger session cookie presented");
+        }
+
+        // 2. Query-parameter auth (opt-in only — URLs leak via logs, history, proxies, Referer)
+        if (allowQueryToken) {
+            String queryToken = request.getParameter("swaggerToken");
+            if (queryToken != null) {
+                Claims claims = jwtUtil.getClaimsFromToken(queryToken);
+                if (claims != null && SWAGGER_QUERY_TOKEN_SUBJECT.equals(claims.getSubject())) {
+                    log.warn("Swagger access granted via query-parameter token for admin: {} — "
+                                    + "consider switching to cookie-based auth to avoid URL token leakage",
+                            claims.get("discordUserId"));
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                log.warn("Invalid or expired swagger query-parameter token presented");
+            }
         }
 
         // Unauthorized - return appropriate response based on Accept header

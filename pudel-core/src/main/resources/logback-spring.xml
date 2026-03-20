@@ -20,7 +20,7 @@
     <appender name="IN_MEMORY" class="group.worldstandard.pudel.core.service.InMemoryLogAppender" />
 
     <!-- Logger levels (matching application.yml) -->
-    <logger name="worldstandard.group" level="DEBUG" />
+    <logger name="group.worldstandard" level="DEBUG" />
 
     <!--
       Plugin logger levels are registered DYNAMICALLY at runtime.

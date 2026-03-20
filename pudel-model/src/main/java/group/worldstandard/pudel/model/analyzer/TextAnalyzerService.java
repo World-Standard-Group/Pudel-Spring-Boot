@@ -476,7 +476,8 @@ public class TextAnalyzerService {
                 "can", "just", "like", "know", "think", "want", "need", "make", "get"
         );
 
-        String cleaned = text.toLowerCase().replaceAll("<@!?[0-9]{16,21}>", " "); // Remove Discord mentions
+        String cleaned = text.toLowerCase()
+                .replaceAll("<(?:@!?\\d+|#\\d+|@&\\d+|a?:\\w+:\\d+)>", " "); // Remove Discord mentions, channels, roles, and custom emojis
         String[] words = cleaned.split("\\s+");
 
         return Arrays.stream(words)

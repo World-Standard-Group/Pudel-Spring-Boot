@@ -120,6 +120,13 @@ public class AdminController {
     @Value("${pudel.admin.owner-public-key-path:keys/owner_pb.key}")
     private String ownerPublicKeyPath;
 
+    /**
+     * Whether query-parameter token authentication ({@code ?swaggerToken=...}) is allowed.
+     * Disabled by default — URLs can leak via logs, browser history, proxies, and Referer headers.
+     */
+    @Value("${pudel.swagger.allow-query-token:false}")
+    private boolean allowQueryToken;
+
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
@@ -723,8 +730,8 @@ public class AdminController {
             ResponseCookie cookie = ResponseCookie
                     .from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, swaggerToken)
                     .httpOnly(true)
-                    .secure(false) // Set to true in production (requires HTTPS)
-                    .sameSite("Lax")
+                    .secure(true) // Set to true in production (requires HTTPS)
+                    .sameSite("Strict")
                     .path("/")
                     .maxAge(expiry / 1000)
                     .build();
@@ -738,6 +745,28 @@ public class AdminController {
             response.put("swaggerUrl", "/swagger-ui.html");
             response.put("expiresIn", expiry / 1000);
             response.put("adminRole", session.adminRole.name());
+
+            // Optionally issue a very short-lived query-parameter token (opt-in only)
+            if (allowQueryToken) {
+                long queryExpiry = SwaggerAccessFilter.SWAGGER_QUERY_TOKEN_EXPIRY_MS;
+                String queryParamToken = Jwts.builder()
+                        .subject(SwaggerAccessFilter.SWAGGER_QUERY_TOKEN_SUBJECT)
+                        .claim("discordUserId", session.discordUserId)
+                        .claim("adminRole", session.adminRole.name())
+                        .claim("sessionId", session.sessionId)
+                        .issuedAt(new Date())
+                        .expiration(new Date(System.currentTimeMillis() + queryExpiry))
+                        .signWith(privateKey, Jwts.SIG.RS256)
+                        .compact();
+                response.put("queryToken", queryParamToken);
+                response.put("queryTokenExpiresIn", queryExpiry / 1000);
+                response.put("queryTokenWarning",
+                        "This token is valid for only " + (queryExpiry / 1000) + " seconds. "
+                                + "URLs containing tokens can leak via browser history, server logs, proxy logs, "
+                                + "and Referer headers. Prefer cookie-based auth.");
+                response.put("swaggerUrlWithToken",
+                        "/swagger-ui.html?swaggerToken=" + queryParamToken);
+            }
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())

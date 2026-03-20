@@ -25,6 +25,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -48,6 +49,9 @@ public class InMemoryLogAppender extends AppenderBase<ILoggingEvent> {
     /** The shared ring buffer — thread-safe, bounded on append. */
     private static final Deque<LogEntry> BUFFER = new ConcurrentLinkedDeque<>();
 
+    /** O(1) size tracker to avoid ConcurrentLinkedDeque.size() which is O(n). */
+    private static final AtomicInteger SIZE = new AtomicInteger();
+
     /** Listeners that receive every new log entry in real time. */
     private static final List<Consumer<LogEntry>> LISTENERS = new CopyOnWriteArrayList<>();
 
@@ -60,10 +64,15 @@ public class InMemoryLogAppender extends AppenderBase<ILoggingEvent> {
         LogEntry entry = toLogEntry(event);
 
         BUFFER.addLast(entry);
+        int currentSize = SIZE.incrementAndGet();
 
-        // Evict oldest if over capacity
-        while (BUFFER.size() > MAX_ENTRIES) {
-            BUFFER.pollFirst();
+        // Evict oldest if over capacity (O(1) per eviction)
+        while (currentSize > MAX_ENTRIES) {
+            if (BUFFER.pollFirst() != null) {
+                currentSize = SIZE.decrementAndGet();
+            } else {
+                break;
+            }
         }
 
         // Notify real-time listeners
@@ -101,6 +110,7 @@ public class InMemoryLogAppender extends AppenderBase<ILoggingEvent> {
      */
     public static void clearBuffer() {
         BUFFER.clear();
+        SIZE.set(0);
     }
 
     /**
@@ -118,7 +128,7 @@ public class InMemoryLogAppender extends AppenderBase<ILoggingEvent> {
     }
 
     public static int getBufferSize() {
-        return BUFFER.size();
+        return SIZE.get();
     }
 
     // ------------------------------------------------------------------
