@@ -24,6 +24,7 @@ import group.worldstandard.pudel.core.service.PluginService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -136,6 +137,26 @@ public class AdminController {
         this.pluginService = pluginService;
         this.adminWhitelistRepository = adminWhitelistRepository;
         this.logService = logService;
+    }
+
+    // =====================================================
+    // Request Utilities
+    // =====================================================
+
+    /**
+     * Determines whether the current request was made over a secure (HTTPS) connection.
+     * Checks both the servlet container's {@code isSecure()} flag and the
+     * {@code X-Forwarded-Proto} header commonly set by reverse proxies / load balancers.
+     *
+     * @param request the current HTTP request
+     * @return {@code true} if the connection is HTTPS (directly or via proxy)
+     */
+    private boolean isSecureRequest(HttpServletRequest request) {
+        if (request.isSecure()) {
+            return true;
+        }
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        return forwardedProto != null && forwardedProto.equalsIgnoreCase("https");
     }
 
     // =====================================================
@@ -703,7 +724,8 @@ public class AdminController {
      */
     @PostMapping("/swagger/authorize")
     public ResponseEntity<?> authorizeSwaggerAccess(
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            HttpServletRequest request) {
         try {
             AdminSessionData session = validateAdminSession(authHeader);
             if (session == null) {
@@ -726,12 +748,15 @@ public class AdminController {
                     .signWith(privateKey, Jwts.SIG.RS256)
                     .compact();
 
-            // Build HttpOnly cookie
+            // Build HttpOnly cookie — Secure flag is set only when the request
+            // arrives over HTTPS (directly or via a reverse proxy setting
+            // X-Forwarded-Proto: https), so local/dev HTTP setups still work.
+            boolean secure = isSecureRequest(request);
             ResponseCookie cookie = ResponseCookie
                     .from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, swaggerToken)
                     .httpOnly(true)
-                    .secure(true) // Set to true in production (requires HTTPS)
-                    .sameSite("Strict")
+                    .secure(secure)
+                    .sameSite(secure ? "Strict" : "Lax")
                     .path("/")
                     .maxAge(expiry / 1000)
                     .build();
@@ -783,13 +808,14 @@ public class AdminController {
      * DELETE /api/admin/swagger/authorize
      */
     @DeleteMapping("/swagger/authorize")
-    public ResponseEntity<?> revokeSwaggerAccess() {
+    public ResponseEntity<?> revokeSwaggerAccess(HttpServletRequest request) {
         // Clear the cookie by setting max-age to 0
+        boolean secure = isSecureRequest(request);
         ResponseCookie cookie = ResponseCookie
                 .from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, "")
                 .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
+                .secure(secure)
+                .sameSite(secure ? "Strict" : "Lax")
                 .path("/")
                 .maxAge(0)
                 .build();
@@ -842,21 +868,22 @@ public class AdminController {
 
     /**
      * Stream application logs in real-time via Server-Sent Events (SSE).
-     * GET /api/admin/logs/stream?token=<AdminJWT>&history=true
+     * GET /api/admin/logs/stream?history=true
      * <p>
-     * Uses query parameter for authentication since EventSource API
-     * does not support custom headers.
+     * Authentication is performed using the standard Authorization header
+     * (e.g. "Authorization: Bearer &lt;AdminJWT&gt;"), consistent with other
+     * admin endpoints. This avoids sending long-lived admin tokens in the URL.
      *
-     * @param token AdminJWT token (required, passed as query param)
+     * @param authHeader Authorization header containing the AdminJWT bearer token
      * @param history if true, sends the last 200 entries before streaming live
      */
     @GetMapping(value = "/logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamLogs(
-            @RequestParam(value = "token") String token,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestParam(defaultValue = "true") boolean history) {
 
-        // Validate admin token from query parameter
-        AdminSessionData session = validateAdminSession("Bearer " + token);
+        // Validate admin token from Authorization header
+        AdminSessionData session = validateAdminSession(authHeader);
         if (session == null) {
             SseEmitter emitter = new SseEmitter(0L);
             try {
