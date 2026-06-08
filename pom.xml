@@ -65,7 +65,7 @@
         <spring.boot.web.version>7.0.7</spring.boot.web.version>
 
         <!--netty-->
-        <netty.codec.http>4.2.13.Final</netty.codec.http>
+        <netty.codec.http>4.2.15.Final</netty.codec.http>
 
         <!--Tool Version Control-->
         <tool.jackson.version>3.1.3</tool.jackson.version>
