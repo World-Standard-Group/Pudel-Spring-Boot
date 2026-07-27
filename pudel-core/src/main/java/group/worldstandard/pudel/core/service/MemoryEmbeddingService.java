@@ -24,7 +24,9 @@ import group.worldstandard.pudel.core.config.brain.ChatbotConfig;
 import group.worldstandard.pudel.core.config.brain.MemoryConfig;
 import group.worldstandard.pudel.core.brain.ollama.OllamaClient;
 
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -312,7 +314,7 @@ public class MemoryEmbeddingService {
 
             // Calculate how many to keep
             long keepCount = (currentCount * keepPercentage) / 100;
-            LocalDateTime cutoffDate = LocalDateTime.now().minusDays(minAgeDays);
+            Instant cutoffDate = Instant.now().minus(Duration.ofDays(minAgeDays));
 
             // Delete old entries beyond the keep threshold
             String deleteSql = String.format("""
@@ -325,7 +327,7 @@ public class MemoryEmbeddingService {
                 AND created_at < ?
                 """, schemaName, schemaName, keepCount);
 
-            int deleted = jdbcTemplate.update(deleteSql, cutoffDate);
+            int deleted = jdbcTemplate.update(deleteSql, Timestamp.from(cutoffDate));
 
             if (deleted > 0) {
                 logger.info("Cleaned up {} old dialogue entries from {}", deleted, schemaName);

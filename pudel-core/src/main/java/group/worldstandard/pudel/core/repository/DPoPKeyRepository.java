@@ -21,7 +21,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -78,14 +78,14 @@ public interface DPoPKeyRepository extends JpaRepository<DPoPKey, Long> {
      */
     @Modifying
     @Query("DELETE FROM DPoPKey d WHERE d.expiresAt < :now")
-    int deleteExpiredKeys(@Param("now") LocalDateTime now);
+    int deleteExpiredKeys(@Param("now") Instant now);
 
     /**
      * Delete inactive DPoP keys older than the specified date.
      */
     @Modifying
     @Query("DELETE FROM DPoPKey d WHERE d.isActive = false AND d.lastUsedAt < :before")
-    int deleteInactiveKeysOlderThan(@Param("before") LocalDateTime before);
+    int deleteInactiveKeysOlderThan(@Param("before") Instant before);
 
     /**
      * Count active keys for a user.
@@ -97,5 +97,5 @@ public interface DPoPKeyRepository extends JpaRepository<DPoPKey, Long> {
      */
     @Modifying
     @Query("UPDATE DPoPKey d SET d.lastUsedAt = :now WHERE d.keyId = :keyId")
-    int updateLastUsed(@Param("keyId") String keyId, @Param("now") LocalDateTime now);
+    int updateLastUsed(@Param("keyId") String keyId, @Param("now") Instant now);
 }

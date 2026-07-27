@@ -15,7 +15,8 @@
 package group.worldstandard.pudel.core.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+
+import java.time.Instant;
 
 /**
  * Entity for storing DPoP keypairs persistently.
@@ -91,21 +92,21 @@ public class DPoPKey {
      * When this key was created.
      */
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /**
      * When this key was last used.
      * Used for cleanup of stale keys.
      */
     @Column(name = "last_used_at")
-    private LocalDateTime lastUsedAt;
+    private Instant lastUsedAt;
 
     /**
      * When this key expires.
      * DPoP keys should have a limited lifetime for security.
      */
     @Column(name = "expires_at", nullable = false)
-    private LocalDateTime expiresAt;
+    private Instant expiresAt;
 
     /**
      * Whether this key is still active.
@@ -122,12 +123,12 @@ public class DPoPKey {
 
     // Constructors
     public DPoPKey() {
-        this.createdAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
         this.isActive = true;
     }
 
     public DPoPKey(String keyId, String userId, String publicKeyJwk, String privateKeyJwk, 
-                   String publicKeyThumbprint, LocalDateTime expiresAt) {
+                   String publicKeyThumbprint, Instant expiresAt) {
         this();
         this.keyId = keyId;
         this.userId = userId;
@@ -194,27 +195,27 @@ public class DPoPKey {
         this.publicKeyThumbprint = publicKeyThumbprint;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getLastUsedAt() {
+    public Instant getLastUsedAt() {
         return lastUsedAt;
     }
 
-    public void setLastUsedAt(LocalDateTime lastUsedAt) {
+    public void setLastUsedAt(Instant lastUsedAt) {
         this.lastUsedAt = lastUsedAt;
     }
 
-    public LocalDateTime getExpiresAt() {
+    public Instant getExpiresAt() {
         return expiresAt;
     }
 
-    public void setExpiresAt(LocalDateTime expiresAt) {
+    public void setExpiresAt(Instant expiresAt) {
         this.expiresAt = expiresAt;
     }
 
@@ -236,7 +237,7 @@ public class DPoPKey {
 
     @PreUpdate
     protected void onUpdate() {
-        this.lastUsedAt = LocalDateTime.now();
+        this.lastUsedAt = Instant.now();
     }
 
     @Override

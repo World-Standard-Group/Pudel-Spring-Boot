@@ -14,7 +14,7 @@
  */
 package group.worldstandard.pudel.core.brain.context;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -52,14 +52,14 @@ public record PassiveContextEntry(
         List<String> attachmentUrls,
         Long replyToMessageId,
         List<ForwardedMessageRef> forwardedMessages,
-        LocalDateTime timestamp
+        Instant timestamp
 ) {
     /**
      * Creates a minimal passive context entry with just the essential fields.
      */
     public static PassiveContextEntry minimal(long messageId, long userId, long channelId, String content) {
         return new PassiveContextEntry(messageId, userId, channelId, content,
-                Map.of(), List.of(), null, List.of(), LocalDateTime.now());
+                Map.of(), List.of(), null, List.of(), Instant.now());
     }
 
     /**

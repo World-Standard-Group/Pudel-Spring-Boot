@@ -15,7 +15,8 @@
 package group.worldstandard.pudel.core.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+
+import java.time.Instant;
 
 /**
  * Entity representing an admin-whitelisted Discord user.
@@ -82,13 +83,13 @@ public class AdminWhitelist {
      * Last successful login timestamp.
      */
     @Column(name = "last_login")
-    private LocalDateTime lastLogin;
+    private Instant lastLogin;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     // Enum for admin roles
     public enum AdminRole {
@@ -99,8 +100,8 @@ public class AdminWhitelist {
 
     // Constructors
     public AdminWhitelist() {
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
     }
 
     public AdminWhitelist(String discordUserId, AdminRole adminRole) {
@@ -116,7 +117,7 @@ public class AdminWhitelist {
 
     @PreUpdate
     protected void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 
     // Getters and Setters
@@ -184,27 +185,27 @@ public class AdminWhitelist {
         this.addedBy = addedBy;
     }
 
-    public LocalDateTime getLastLogin() {
+    public Instant getLastLogin() {
         return lastLogin;
     }
 
-    public void setLastLogin(LocalDateTime lastLogin) {
+    public void setLastLogin(Instant lastLogin) {
         this.lastLogin = lastLogin;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
     }
 

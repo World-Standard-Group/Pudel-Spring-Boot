@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -93,11 +93,11 @@ public class PassiveContextProcessor {
             MessageReceivedEvent event,
             long targetId,
             boolean isGuild,
-            LocalDateTime timestamp
+            Instant timestamp
     ) {
         PendingContext(long messageId, long userId, long channelId,
                        MessageReceivedEvent event, long targetId, boolean isGuild) {
-            this(messageId, userId, channelId, event, targetId, isGuild, LocalDateTime.now());
+            this(messageId, userId, channelId, event, targetId, isGuild, Instant.now());
         }
     }
 
@@ -182,7 +182,7 @@ public class PassiveContextProcessor {
         PassiveContext config = brainConfig.getPassiveContext();
         int batchSize = config.getBatchSize();
         long maxAgeMs = config.getMaxAgeMs();
-        java.time.LocalDateTime cutoffTime = java.time.LocalDateTime.now().minusNanos(maxAgeMs * 1_000_000);
+        Instant cutoffTime = Instant.now().minusNanos(maxAgeMs * 1_000_000);
 
         List<PendingContext> batch = new ArrayList<>();
         PendingContext pending;
@@ -223,9 +223,7 @@ public class PassiveContextProcessor {
         for (PendingContext pending : batch) {
             try {
                 PassiveContextEntry entry = buildContextEntry(pending.event, brainConfig.getPassiveContext());
-                if (entry != null) {
-                    storeContextEntry(entry, pending.targetId, pending.isGuild);
-                }
+                storeContextEntry(entry, pending.targetId, pending.isGuild);
             } catch (Exception e) {
                 logger.debug("Error processing passive context for message {}: {}",
                         pending.messageId, e.getMessage());
@@ -270,7 +268,7 @@ public class PassiveContextProcessor {
         return new PassiveContextEntry(
                 messageId, userId, channelId, content,
                 entities, attachmentUrls, replyToMessageId,
-                forwardedMessages, LocalDateTime.now()
+                forwardedMessages, Instant.now()
         );
     }
 
@@ -400,7 +398,7 @@ public class PassiveContextProcessor {
                     entitiesJson,
                     "{" + entry.attachmentUrls().stream().map(s -> "\"" + s + "\"").collect(java.util.stream.Collectors.joining(",")) + "}",
                     forwardedMessageId,
-                    Timestamp.valueOf(entry.timestamp())
+                    Timestamp.from(entry.timestamp())
             );
 
             // Record forwarded messages in the dedicated table (author intentionally empty).
@@ -547,7 +545,7 @@ public class PassiveContextProcessor {
                         attachmentUrls,
                         null, // replyToMessageId not stored directly in passive_context
                         forwardedRefs,
-                        createdAt.toLocalDateTime()
+                        createdAt.toInstant()
                 ));
             }
             return entries;
@@ -635,7 +633,7 @@ public class PassiveContextProcessor {
                     attachmentUrls,
                     null, // replyToMessageId not stored in passive_context
                     forwardedRefs,
-                    ((Timestamp) row.get("created_at")).toLocalDateTime()
+                    ((Timestamp) row.get("created_at")).toInstant()
             );
 
         } catch (Exception e) {

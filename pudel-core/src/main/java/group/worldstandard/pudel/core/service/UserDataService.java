@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -81,7 +81,7 @@ public class UserDataService {
         String schemaName = schemaManagementService.getUserSchemaName(userId);
 
         try {
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
 
             // Check if row exists
             String countSql = "SELECT COUNT(*) FROM " + schemaName + ".pudel_settings";
@@ -145,7 +145,7 @@ public class UserDataService {
             jdbcTemplate.update(sql, userMessage, botResponse, intent, respondTo,
                     attachmentUrls != null && !attachmentUrls.isEmpty()
                             ? attachmentUrls.toArray(new String[0]) : null,
-                    Timestamp.valueOf(LocalDateTime.now()));
+                    Timestamp.from(Instant.now()));
             logger.debug("Stored DM dialogue for user {} (respond_to={})", userId, respondTo);
         } catch (Exception e) {
             logger.error("Error storing DM dialogue for user {}: {}", userId, e.getMessage());
@@ -189,7 +189,7 @@ public class UserDataService {
             String sql = "INSERT INTO " + schemaName + ".memory (key, value, category, created_at, updated_at) " +
                     "VALUES (?, ?, ?, ?, ?) " +
                     "ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = ?";
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             jdbcTemplate.update(sql, key, value, category, now, now, value, category, now);
             logger.debug("Stored memory '{}' for user {}", key, userId);
         } catch (Exception e) {

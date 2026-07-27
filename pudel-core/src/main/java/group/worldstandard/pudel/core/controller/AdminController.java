@@ -49,7 +49,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -614,7 +614,7 @@ public class AdminController {
             // Step 6: Signature valid! Remove challenge and create session
             pendingChallenges.remove(request.challengeId);
 
-            admin.setLastLogin(LocalDateTime.now());
+            admin.setLastLogin(Instant.now());
             if (discordUsername != null) {
                 admin.setDiscordUsername(discordUsername);
             }

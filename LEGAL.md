@@ -7,7 +7,6 @@ Pudel is open-source software with a dual-license structure.
 | Component | License | Commercial Use |
 |-----------|---------|----------------|
 | `pudel-core` | AGPLv3 + Plugin Exception | Must open-source modifications |
-| `pudel-model` | AGPLv3 + Plugin Exception | Must open-source modifications |
 | `pudel-api` | MIT | ✅ Proprietary plugins allowed |
 
 ## Plugin Development

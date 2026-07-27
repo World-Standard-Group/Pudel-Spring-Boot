@@ -32,7 +32,7 @@ import group.worldstandard.pudel.core.service.DiscordAPIService.TokenResult;
 import group.worldstandard.pudel.core.repository.GuildSettingsRepository;
 import group.worldstandard.pudel.core.repository.UserRepository;
 import group.worldstandard.pudel.core.repository.UserGuildRepository;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 
 @Service
@@ -117,7 +117,7 @@ public class AuthService extends BaseService {
             if (refreshToken != null && !refreshToken.isBlank()) {
                 user.setRefreshToken(refreshToken);
             }
-            user.setTokenExpiresAt(LocalDateTime.now().plusSeconds(expiresInSeconds));
+            user.setTokenExpiresAt(Instant.now().plusSeconds(expiresInSeconds));
 
             userRepository.save(user);
             log.info("User saved/updated: {}", user.getId());
@@ -210,7 +210,7 @@ public class AuthService extends BaseService {
                 return null;
             }
             boolean discordExpired = user.getTokenExpiresAt() == null
-                    || user.getTokenExpiresAt().isBefore(LocalDateTime.now().plusMinutes(5));
+                    || user.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(300));
             if (discordExpired) {
                 String refreshToken = user.getRefreshToken();
                 TokenResult refreshed = discordAPIService.refreshAccessToken(refreshToken);
@@ -222,7 +222,7 @@ public class AuthService extends BaseService {
                 if (refreshed.refreshToken() != null && !refreshed.refreshToken().isBlank()) {
                     user.setRefreshToken(refreshed.refreshToken());
                 }
-                user.setTokenExpiresAt(LocalDateTime.now().plusSeconds(refreshed.expiresIn()));
+                user.setTokenExpiresAt(Instant.now().plusSeconds(refreshed.expiresIn()));
                 userRepository.save(user);
 
                 List<Map<String, Object>> discordGuilds =
