@@ -80,12 +80,20 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface ContextMenu {
     /**
-     * Returns the display name of the context menu.
-     * This name is shown to users in the Discord client when they right-click on a user or message.
+     * Returns the base name of the context menu.
+     * This name is in format of 'baseName > funcName' to charity mixed plugin may had mismatch display name.
      *
-     * @return the name of the context menu (Max 32 characters)
+     * @return the base name of the context menu (the format result must not excess 32 characters)
      */
-    String name();
+    String baseName();
+
+    /**
+     * Returns the function name of the context menu.
+     * This name is in format of 'baseName > funcName' to charity mixed plugin may had mismatch display name.
+     *
+     * @return the function name of the context menu (the format result must not excess 32 characters)
+     */
+    String funcName();
 
     /**
      * Returns the type of context menu this command represents.

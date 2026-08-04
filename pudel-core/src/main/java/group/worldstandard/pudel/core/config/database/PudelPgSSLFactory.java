@@ -136,7 +136,7 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
 
         // Ordered roughly by most common usage to optimize the loop
         String[] algorithms = {
-                "RSA", "EC", "EdDSA", "RSASSA-PSS", "XDH", "DiffieHellman", "DSA"
+                "RSA", "EC", "EdDSA", "RSASSA-PSS", "XDH", "DiffieHellman", "DSA", "HSS/LMS", "ML-DSA", "ML-KEM"
         };
 
         for (String alg : algorithms) {
@@ -148,7 +148,7 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         }
 
         throw new IllegalArgumentException("Unsupported private key algorithm in " + path
-                + " (tried RSA, EC, EdDSA, RSASSA-PSS, XDH, DiffieHellman, DSA, and variants)");
+                + " (tried RSA, EC, EdDSA, RSASSA-PSS, XDH, DiffieHellman, DSA, HSS/LMS, ML-DSA, ML-KEM)");
     }
 
     /** Strip optional PEM armour, returning the raw DER bytes. */

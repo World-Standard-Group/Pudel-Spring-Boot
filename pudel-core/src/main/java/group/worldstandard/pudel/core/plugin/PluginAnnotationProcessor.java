@@ -410,10 +410,16 @@ public class PluginAnnotationProcessor {
 
     private CommandData buildContextMenuCommandData(ContextMenu annotation, Command.Type type) {
         CommandData data;
+        String actualName = annotation.baseName().trim() + " > " + annotation.funcName().trim();
+
+        if(actualName.length() > 32){
+            actualName = actualName.substring(0, 30) + "...";
+        }
+
         if (type == Command.Type.USER) {
-            data = Commands.user(annotation.name());
+            data = Commands.user(actualName);
         } else {
-            data = Commands.message(annotation.name());
+            data = Commands.message(actualName);
         }
 
         // Add default member permissions (controls visibility/usage)
@@ -833,7 +839,7 @@ public class PluginAnnotationProcessor {
             // Register
             if (interactionManager.registerContextMenu(pluginId, handler)) {
                 pluginContextMenus.computeIfAbsent(pluginId, _ -> new HashSet<>())
-                        .add(annotation.name());
+                        .add(handler.getCommandData().getName());
                 count++;
             }
         }
