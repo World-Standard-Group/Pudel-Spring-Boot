@@ -76,13 +76,14 @@ if [ -n "${POSTGRES_HOST}" ] && [ -n "${POSTGRES_PORT}" ] && [ -n "${POSTGRES_DB
     [ -n "${POSTGRES_SSL_MODE}" ] && SSL_QUERY="${SSL_QUERY}&sslmode=${POSTGRES_SSL_MODE}"
 
     if [ -n "${POSTGRES_SSL_CA_CERT}" ] && [ -n "${POSTGRES_SSL_CLIENT_CERT}" ] && [ -n "${POSTGRES_SSL_CLIENT_KEY}" ]; then
-        SSL_QUERY="${SSL_QUERY}&sslfactory=group.worldstandard.pudel.core.config.database.PudelPgSSLFactory"
+        SSL_QUERY="${SSL_QUERY}&sslfactory=group.worldstandard.pudel.core.config.database.PudelPgSSLFactory&channelbinding=require"
         # Inject the PEM paths as JVM system properties for the no-arg factory.
         JAVA_OPTS="${JAVA_OPTS} -Dpudel.ssl.ca=${POSTGRES_SSL_CA_CERT} -Dpudel.ssl.cert=${POSTGRES_SSL_CLIENT_CERT} -Dpudel.ssl.key=${POSTGRES_SSL_CLIENT_KEY}"
     else
         [ -n "${POSTGRES_SSL_CA_CERT}" ]     && SSL_QUERY="${SSL_QUERY}&sslrootcert=${POSTGRES_SSL_CA_CERT}"
         [ -n "${POSTGRES_SSL_CLIENT_CERT}" ] && SSL_QUERY="${SSL_QUERY}&sslcert=${POSTGRES_SSL_CLIENT_CERT}"
         [ -n "${POSTGRES_SSL_CLIENT_KEY}" ]  && SSL_QUERY="${SSL_QUERY}&sslkey=${POSTGRES_SSL_CLIENT_KEY}"
+        SSL_QUERY="${SSL_QUERY}&channelbinding=require"
     fi
 
     if [ -n "${SSL_QUERY}" ]; then
