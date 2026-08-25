@@ -37,6 +37,8 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Self-contained PostgreSQL SSL socket factory, wired via the {@code sslfactory=}
@@ -154,12 +156,23 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
     /** Strip optional PEM armour, returning the raw DER bytes. */
     private static byte[] stripPem(byte[] data) {
         final String text = new String(data, StandardCharsets.US_ASCII);
+
         if (!text.contains("-----BEGIN")) {
             return data; // already DER
         }
 
-        final String b64 = text.replaceAll("-----.+-----", "").replaceAll("\\s+", "");
-        return Base64.getDecoder().decode(b64);
+        final Pattern PEM_PATTERN = Pattern.compile(
+                "-----BEGIN [^-]+-----(?<payload>[^-]+)-----END [^-]+-----",
+                Pattern.DOTALL
+        );
+
+        final Matcher matcher = PEM_PATTERN.matcher(text);
+        if (matcher.find()) {
+            final String base64Payload = matcher.group("payload").replaceAll("\\s+", "");
+            return Base64.getDecoder().decode(base64Payload);
+        }
+
+        throw new IllegalArgumentException("Malformed PEM data: missing or mismatched BEGIN/END delimiters");
     }
 
     // ---- SSLSocketFactory delegation ----
