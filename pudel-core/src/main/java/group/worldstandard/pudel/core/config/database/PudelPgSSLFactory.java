@@ -124,14 +124,14 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
 
     private static Certificate readCertificate(String path) throws Exception {
         try (InputStream in = Files.newInputStream(Paths.get(path))) {
-            final byte[] der = stripPem(in.readAllBytes(), "CERTIFICATE");
+            final byte[] der = stripPem(in.readAllBytes());
             return CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(der));
         }
     }
 
     private static PrivateKey readPrivateKey(String path) throws Exception {
         final byte[] raw = Files.readAllBytes(Paths.get(path));
-        final byte[] der = stripPem(raw, "PRIVATE KEY", "RSA PRIVATE KEY");
+        final byte[] der = stripPem(raw);
         final PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
 
         // Ordered roughly by most common usage to optimize the loop
@@ -152,23 +152,14 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
     }
 
     /** Strip optional PEM armour, returning the raw DER bytes. */
-    private static byte[] stripPem(byte[] data, String... labels) {
+    private static byte[] stripPem(byte[] data) {
         final String text = new String(data, StandardCharsets.US_ASCII);
         if (!text.contains("-----BEGIN")) {
             return data; // already DER
         }
-        for (String label : labels) {
-            final String begin = "-----BEGIN " + label + "-----";
-            final String end = "-----END " + label + "-----";
-            final int s = text.indexOf(begin);
-            final int e = text.indexOf(end);
-            if (s >= 0 && e > s) {
-                final String b64 = text.substring(s + begin.length(), e).replaceAll("\\s+", "");
-                return Base64.getDecoder().decode(b64);
-            }
-        }
-        throw new IllegalArgumentException("No supported PEM label found (expected one of: "
-                + String.join(", ", labels) + ")");
+
+        final String b64 = text.replaceAll("-----.+-----", "").replaceAll("\\s+", "");
+        return Base64.getDecoder().decode(b64);
     }
 
     // ---- SSLSocketFactory delegation ----
