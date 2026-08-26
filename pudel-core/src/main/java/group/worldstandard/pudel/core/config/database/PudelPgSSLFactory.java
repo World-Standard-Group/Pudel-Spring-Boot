@@ -20,7 +20,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -34,7 +33,6 @@ import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.regex.Matcher;
@@ -97,24 +95,30 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         }
     }
 
-    private static SSLContext buildSslContext(String caPath, String clientCertPath, String clientKeyPath)
-            throws Exception {
-        // Trust: CA that signs the server certificate.
-        final X509Certificate caCert = (X509Certificate) readCertificate(caPath);
+    private static SSLContext buildSslContext(String caPath, String clientCertPath, String clientKeyPath) throws Exception {
+        // Trust: Load all CA certificates (Root + Intermediates)
+        final Certificate[] caCerts = readCertificateChain(caPath);
         final KeyStore trustStore = KeyStore.getInstance("PKCS12");
         trustStore.load(null, null);
-        trustStore.setCertificateEntry("pudel-ca", caCert);
+
+        // Add each certificate in the CA chain with a unique alias
+        for (int i = 0; i < caCerts.length; i++) {
+            trustStore.setCertificateEntry("pudel-ca-" + i, caCerts[i]);
+        }
+
         final TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         tmf.init(trustStore);
         final TrustManager[] trustManagers = tmf.getTrustManagers();
 
-        // Key: client cert + private key for mTLS.
-        final X509Certificate clientCert = (X509Certificate) readCertificate(clientCertPath);
+        // Key: Load client cert chain + private key for mTLS
+        final Certificate[] clientCerts = readCertificateChain(clientCertPath);
         final PrivateKey clientKey = readPrivateKey(clientKeyPath);
         final KeyStore keyStore = KeyStore.getInstance("PKCS12");
         keyStore.load(null, null);
-        keyStore.setCertificateEntry("pudel-client", clientCert);
-        keyStore.setKeyEntry("pudel-client-key", clientKey, new char[0], new Certificate[]{clientCert});
+
+        // The key entry accepts the full certificate array as the chain
+        keyStore.setKeyEntry("pudel-client-key", clientKey, new char[0], clientCerts);
+
         final KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         kmf.init(keyStore, new char[0]);
         final KeyManager[] keyManagers = kmf.getKeyManagers();
@@ -124,10 +128,10 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         return ctx;
     }
 
-    private static Certificate readCertificate(String path) throws Exception {
+    private static Certificate[] readCertificateChain(String path) throws Exception {
         try (InputStream in = Files.newInputStream(Paths.get(path))) {
-            final byte[] der = stripPem(in.readAllBytes());
-            return CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(der));
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            return factory.generateCertificates(in).toArray(new Certificate[0]);
         }
     }
 
