@@ -2,8 +2,8 @@
 
 **Project**: Pudel Discord Bot  
 **Maintainer**: World Standard Group  
-**Version**: v2.3.1
-**Last Updated**: May 17, 2026
+**Version**: v2.4.0
+**Last Updated**: July 16, 2026
 
 ---
 
@@ -13,8 +13,8 @@ Security updates are provided for the following versions:
 
 | Version  | Supported      | Until          |
 |----------|----------------|----------------|
-| 2.3.x    | Active support | 2.4.0 Released |
-| <= 2.2.2 | End of Life    | Not supported  |
+| 2.4.x    | Active support | 2.5.0 Released |
+| <= 2.3.2 | End of Life    | Not supported  |
 
 We strongly recommend running the latest release at all times.
 
@@ -43,7 +43,6 @@ In scope:
 
 - pudel-core
 - pudel-api
-- pudel-model
 - Official dashboard
 - Official hosted instance (worldstandard.group)
 
@@ -81,7 +80,7 @@ You can also report vulnerabilities through [GitHub Security Advisories](https:/
 When reporting a vulnerability, please provide:
 
 - **Description** — A clear explanation of the vulnerability
-- **Affected component** — Module (`pudel-core`, `pudel-api`, `pudel-model`), class, or endpoint
+- **Affected component** — Module (`pudel-core`, `pudel-api`), class, or endpoint
 - **Reproduction steps** — Detailed steps to reproduce the issue
 - **Impact assessment** — What an attacker could achieve
 - **Proof of Concept** — Code, request/response logs, or screenshots (if applicable)
@@ -179,13 +178,13 @@ When running with Docker:
 
 Pudel is built on the following core dependencies:
 
-| Dependency | Version   | Purpose |
-|------------|-----------|---------|
-| Spring Boot | 4.1.0-RC1 | Application framework |
-| JDA | 6.4.1     | Discord Gateway + REST |
-| Jackson | 3.1.3     | JSON serialization |
-| SLF4J | 2.0.17    | Logging |
-| PostgreSQL + pgvector | —         | Database + vector embeddings |
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| Spring Boot | 4.1.0   | Application framework |
+| JDA | 6.5.0   | Discord Gateway + REST |
+| Jackson | 3.2.1   | JSON serialization |
+| SLF4J | 2.0.18  | Logging |
+| PostgreSQL + pgvector | —       | Database + vector embeddings |
 
 We actively monitor dependencies for known vulnerabilities (CVEs). If you discover a vulnerable transitive dependency, please report it using the process above.
 

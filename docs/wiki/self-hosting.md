@@ -130,7 +130,7 @@ ollama serve
 ### 9. Run Pudel
 
 ```bash
-java -jar pudel-core/target/pudel-core-2.3.2.jar \
+java -jar pudel-core/target/pudel-core-2.4.0.jar \
   --spring.profiles.active=local
 ```
 
@@ -220,7 +220,7 @@ After=network.target postgresql.service
 Type=simple
 User=pudel
 WorkingDirectory=/opt/pudel
-ExecStart=/usr/bin/java -Xmx2g -jar pudel-core-2.3.2.jar --spring.profiles.active=production
+ExecStart=/usr/bin/java -Xmx2g -jar pudel-core-2.4.0.jar --spring.profiles.active=production
 Restart=always
 RestartSec=10
 

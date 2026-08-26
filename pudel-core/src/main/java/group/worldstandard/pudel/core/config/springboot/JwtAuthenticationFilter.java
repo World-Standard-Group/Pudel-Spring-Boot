@@ -181,6 +181,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         return path.startsWith("/api/auth/discord/")
+                || path.equals("/api/auth/refresh") // BFF refresh validates internally
                 || path.startsWith("/api/bot/")
                 || path.equals("/api/admin/logs/stream") // SSE uses query param token auth
                 || (path.equals("/api/plugins") && "GET".equals(request.getMethod()))

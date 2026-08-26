@@ -12,9 +12,9 @@
  * <h2>Key Components:</h2>
  * <ul>
  *   <li>{@link group.worldstandard.pudel.api.command.CommandContext} - Context provided to command handlers</li>
- *   <li>{@link group.worldstandard.pudel.api.command.TextCommandHandler} - Functional interface for command handling</li>
- *   <li>{@link group.worldstandard.pudel.api.command.CommandRegister} - Interface for programmatic registration</li>
  *   <li>{@link group.worldstandard.pudel.api.command.CommandInfo} - Annotation for command metadata on handler classes</li>
+ *   <li>{@link group.worldstandard.pudel.api.command.CommandRegister} - Interface for programmatic registration</li>
+ *   <li>{@link group.worldstandard.pudel.api.command.TextCommandHandler} - Functional interface for command handling</li>
  * </ul>
  *
  * <h2>Annotation-based Command:</h2>

@@ -67,6 +67,10 @@ public class McpToolDefinition {
 
     /**
      * Execute this tool with the given context and parameters.
+     *
+     * @param context    the agent tool context the tool runs in (guild vs DM, etc.)
+     * @param parameters the parameter map passed to the tool (may be empty)
+     * @return the tool's textual output, or an error message if no executor is set
      */
     public String execute(AgentToolContext context, Map<String, Object> parameters) {
         if (executor != null) {
@@ -77,6 +81,9 @@ public class McpToolDefinition {
 
     /**
      * Check if this tool is available in the given context.
+     *
+     * @param context the agent tool context to evaluate availability against
+     * @return true if the tool may run in the context (guild-only / DM-only honored)
      */
     public boolean isAvailableIn(AgentToolContext context) {
         if (guildOnly && !context.isGuild()) return false;

@@ -28,10 +28,11 @@ import group.worldstandard.pudel.core.entity.GuildSettings;
 import group.worldstandard.pudel.core.entity.User;
 import group.worldstandard.pudel.core.entity.UserGuild;
 import group.worldstandard.pudel.core.repository.GuildRepository;
+import group.worldstandard.pudel.core.service.DiscordAPIService.TokenResult;
 import group.worldstandard.pudel.core.repository.GuildSettingsRepository;
 import group.worldstandard.pudel.core.repository.UserRepository;
 import group.worldstandard.pudel.core.repository.UserGuildRepository;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 
 @Service
@@ -89,11 +90,14 @@ public class AuthService extends BaseService {
                 log.info("DPoP proof validated for OAuth callback, thumbprint: {}", dpopThumbprint);
             }
 
-            String accessToken = discordAPIService.getAccessToken(code);
-            if (accessToken == null) {
-                log.error("Failed to get access token");
+            TokenResult tokenResult = discordAPIService.exchangeCodeForTokens(code);
+            if (tokenResult == null || tokenResult.accessToken() == null) {
+                log.error("Failed to exchange code for tokens");
                 return null;
             }
+            String accessToken = tokenResult.accessToken();
+            String refreshToken = tokenResult.refreshToken();
+            long expiresInSeconds = tokenResult.expiresIn();
 
             UserDto userDto = discordAPIService.getUserInfo(accessToken);
             if (userDto == null) {
@@ -110,7 +114,10 @@ public class AuthService extends BaseService {
             user.setEmail(userDto.getEmail());
             user.setVerified(userDto.getVerified());
             user.setAccessToken(accessToken);
-            user.setTokenExpiresAt(LocalDateTime.now().plusHours(24));
+            if (refreshToken != null && !refreshToken.isBlank()) {
+                user.setRefreshToken(refreshToken);
+            }
+            user.setTokenExpiresAt(Instant.now().plusSeconds(expiresInSeconds));
 
             userRepository.save(user);
             log.info("User saved/updated: {}", user.getId());
@@ -138,6 +145,102 @@ public class AuthService extends BaseService {
             return response;
         } catch (Exception e) {
             log.error("Error handling OAuth callback", e);
+            return null;
+        }
+    }
+
+    /**
+     * Refresh a user's session WITHOUT forcing a full Discord re-login.
+     * <p>
+     * RFC 9449 BFF refresh flow:
+     * <ol>
+     *   <li>Validate the DPoP proof presented with the (still-valid) access token.</li>
+     *   <li>Re-validate that the token is still bound to the SAME DPoP key thumbprint
+     *       (prevents key-desync → "key mismatch 401" after a restart).</li>
+     *   <li>If the Discord access token is expired/near-expiry, exchange the stored
+     *       Discord <b>refresh token</b> (server-side, never sent to the client) for a
+     *       fresh Discord access token and re-sync guilds.</li>
+     *   <li>Re-issue a DPoP-bound JWT bound to the SAME key thumbprint — the key pair
+     *       is NEVER regenerated here, so existing DPoP proofs keep validating.</li>
+     * </ol>
+     * This is what lets the SPA survive restarts and token expiry silently.
+     *
+     * @param dpopProof  the DPoP proof from the request
+     * @param httpMethod the HTTP method
+     * @param httpUri    the full request URI
+     * @param dpopKeyId the DPoP key id (X-DPoP-Key-Id header)
+     * @param existingToken the current access token (Authorization: DPoP <token>)
+     * @return a fresh OAuthCallbackResponse, or null if refresh is impossible (caller forces re-login)
+     */
+    @Transactional
+    public OAuthCallbackResponse refresh(String dpopProof, String httpMethod, String httpUri,
+                                      String dpopKeyId, String existingToken) {
+        try {
+            if (existingToken == null || existingToken.isBlank()) {
+                return null;
+            }
+
+            // 1. The current token must still be valid (signature + not expired).
+            if (!jwtUtil.validateToken(existingToken)) {
+                log.info("Refresh denied: existing token invalid/expired");
+                return null;
+            }
+
+            // 2. Validate the DPoP proof and confirm the token is still bound to this key.
+            DPoPService.DPoPValidationResult proofResult =
+                    dpopService.validateProofForResource(dpopProof, httpMethod, httpUri, existingToken, dpopKeyId);
+            if (!proofResult.valid()) {
+                log.warn("Refresh denied: DPoP proof invalid: {}", proofResult.error());
+                return null;
+            }
+            String tokenThumbprint = jwtUtil.getDPoPThumbprint(existingToken);
+            if (tokenThumbprint != null && !tokenThumbprint.equals(proofResult.thumbprint())) {
+                log.warn("Refresh denied: token not bound to presented key");
+                return null;
+            }
+
+            String userId = jwtUtil.getUserIdFromToken(existingToken);
+            if (userId == null) {
+                return null;
+            }
+
+            // 3. Refresh the Discord access token server-side if needed.
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                return null;
+            }
+            boolean discordExpired = user.getTokenExpiresAt() == null
+                    || user.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(300));
+            if (discordExpired) {
+                String refreshToken = user.getRefreshToken();
+                TokenResult refreshed = discordAPIService.refreshAccessToken(refreshToken);
+                if (refreshed == null || refreshed.accessToken() == null) {
+                    log.warn("Discord token refresh failed for user {} (refresh token may be revoked)", userId);
+                    return null; // caller must force full re-login
+                }
+                user.setAccessToken(refreshed.accessToken());
+                if (refreshed.refreshToken() != null && !refreshed.refreshToken().isBlank()) {
+                    user.setRefreshToken(refreshed.refreshToken());
+                }
+                user.setTokenExpiresAt(Instant.now().plusSeconds(refreshed.expiresIn()));
+                userRepository.save(user);
+
+                List<Map<String, Object>> discordGuilds =
+                        discordAPIService.getUserGuilds(refreshed.accessToken());
+                syncUserGuilds(userId, discordGuilds);
+            }
+
+            // 4. Re-issue a DPoP-bound JWT bound to the SAME key (no key regeneration).
+            Map<String, Object> claims = new HashMap<>();
+            claims.put("username", user.getUsername());
+            String jwtToken = jwtUtil.generateDPoPBoundToken(userId, claims, proofResult.thumbprint());
+            log.info("Refreshed DPoP-bound token for user: {} (key unchanged)", userId);
+
+            OAuthCallbackResponse response = new OAuthCallbackResponse(jwtToken, null);
+            response.setTokenType(JwtUtil.TOKEN_TYPE_DPOP);
+            return response;
+        } catch (Exception e) {
+            log.error("Error during token refresh", e);
             return null;
         }
     }

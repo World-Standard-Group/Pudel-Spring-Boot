@@ -228,7 +228,7 @@ public class SchemaManagementService {
                     new Col("content", "TEXT NOT NULL"),
                     new Col("entities", "JSONB"),
                     new Col("attachment_urls", "TEXT[]"),
-                    new Col("forwarded_content", "JSONB"),
+                    new Col("forwarded_message_id", "BIGINT"),
                     new Col("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
                 ),
                 List.of(),
@@ -294,6 +294,45 @@ public class SchemaManagementService {
     /** Declarative definition of all core per-user tables. */
     private List<TableDefinition> buildUserTables() {
         return List.of(
+            new TableDefinition("passive_context",
+                List.of(
+                    new Col("id", "BIGSERIAL PRIMARY KEY"),
+                    new Col("message_id", "BIGINT NOT NULL UNIQUE"),
+                    new Col("user_id", "BIGINT NOT NULL"),
+                    new Col("channel_id", "BIGINT NOT NULL"),
+                    new Col("content", "TEXT NOT NULL"),
+                    new Col("entities", "JSONB"),
+                    new Col("attachment_urls", "TEXT[]"),
+                    new Col("forwarded_message_id", "BIGINT"),
+                    new Col("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                ),
+                List.of(),
+                List.of(
+                    "CREATE INDEX IF NOT EXISTS idx_passive_ctx_message_id ON %SCHEMA%.passive_context(message_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_passive_ctx_user ON %SCHEMA%.passive_context(user_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_passive_ctx_channel ON %SCHEMA%.passive_context(channel_id)"
+                ),
+                List.of("message_id")
+            ),
+            new TableDefinition("forwarded_messages",
+                List.of(
+                    new Col("id", "BIGSERIAL PRIMARY KEY"),
+                    new Col("passive_context_id", "BIGINT"),
+                    new Col("message_id", "BIGINT NOT NULL"),
+                    new Col("author_id", "BIGINT"),
+                    new Col("author_name", "VARCHAR(255)"),
+                    new Col("content", "TEXT"),
+                    new Col("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                ),
+                List.of(
+                    "FOREIGN KEY (passive_context_id) REFERENCES %SCHEMA%.passive_context(id) ON DELETE CASCADE"
+                ),
+                List.of(
+                    "CREATE INDEX IF NOT EXISTS idx_fwd_msgs_passive_ctx ON %SCHEMA%.forwarded_messages(passive_context_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_fwd_msgs_message_id ON %SCHEMA%.forwarded_messages(message_id)"
+                ),
+                List.of()
+            ),
             new TableDefinition("pudel_settings",
                 List.of(
                     new Col("id", "SERIAL PRIMARY KEY"),
@@ -361,8 +400,10 @@ public class SchemaManagementService {
             int dim = embeddingDimension();
             ensureEmbeddingDimension(schemaName, "memory_embeddings", dim);
             ensureEmbeddingDimension(schemaName, "dialogue_embeddings", dim);
+            ensureEmbeddingDimension(schemaName, "passive_context_embeddings", dim);
             createEmbeddingIndexes(schemaName, "memory_embeddings", "embedding");
             createEmbeddingIndexes(schemaName, "dialogue_embeddings", "embedding");
+            createEmbeddingIndexes(schemaName, "passive_context_embeddings", "embedding");
         } catch (Exception e) {
             logger.warn("Could not ensure guild embedding tables for {}: {}", guildId, e.getMessage());
         }
@@ -416,6 +457,19 @@ public class SchemaManagementService {
                 ),
                 List.of(
                     "FOREIGN KEY (dialogue_id) REFERENCES %SCHEMA%.dialogue_history(id) ON DELETE CASCADE"
+                ),
+                List.of(),
+                List.of()
+            ),
+            new TableDefinition("passive_context_embeddings",
+                List.of(
+                    new Col("id", "BIGSERIAL PRIMARY KEY"),
+                    new Col("passive_context_id", "BIGINT"),
+                    new Col("embedding", "vector(" + dim + ") NOT NULL"),
+                    new Col("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                ),
+                List.of(
+                    "FOREIGN KEY (passive_context_id) REFERENCES %SCHEMA%.passive_context(id) ON DELETE CASCADE"
                 ),
                 List.of(),
                 List.of()
@@ -481,7 +535,7 @@ public class SchemaManagementService {
                 Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM pg_extension WHERE extname = 'vector'", Integer.class);
                 pgvectorAvailable = count != null && count > 0;
-                if (Boolean.FALSE.equals(pgvectorAvailable)) {
+                if (!pgvectorAvailable) {
                     logger.warn("pgvector extension not found; semantic search disabled. Run CREATE EXTENSION vector;");
                 }
             } catch (Exception e) {

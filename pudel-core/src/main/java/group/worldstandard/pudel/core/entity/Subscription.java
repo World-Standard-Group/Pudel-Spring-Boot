@@ -15,7 +15,8 @@
 package group.worldstandard.pudel.core.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+
+import java.time.Instant;
 
 /**
  * Represents a subscription tier for users/guilds.
@@ -80,13 +81,13 @@ public class Subscription {
     private Integer pluginLimit = 3; // Default plugin limit
 
     @Column(name = "expires_at")
-    private LocalDateTime expiresAt;
+    private Instant expiresAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     // Constructors
     public Subscription() {
@@ -97,8 +98,8 @@ public class Subscription {
         this.type = type;
         this.tierName = "FREE";
         this.tier = SubscriptionTier.FREE;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
         applyDefaultLimits();
     }
 
@@ -107,8 +108,8 @@ public class Subscription {
         this.type = type;
         this.tierName = tierName;
         this.tier = mapTierNameToEnum(tierName);
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
         // Limits should be set by SubscriptionService using config
     }
 
@@ -121,8 +122,8 @@ public class Subscription {
         this.type = type;
         this.tier = tier;
         this.tierName = tier.name();
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
         applyDefaultLimits();
     }
 
@@ -176,7 +177,7 @@ public class Subscription {
         if ("FREE".equals(tierName) || tier == SubscriptionTier.FREE) {
             return true; // Free tier never expires
         }
-        return expiresAt == null || expiresAt.isAfter(LocalDateTime.now());
+        return expiresAt == null || expiresAt.isAfter(Instant.now());
     }
 
     // Getters and Setters
@@ -255,32 +256,32 @@ public class Subscription {
         this.pluginLimit = pluginLimit;
     }
 
-    public LocalDateTime getExpiresAt() {
+    public Instant getExpiresAt() {
         return expiresAt;
     }
 
-    public void setExpiresAt(LocalDateTime expiresAt) {
+    public void setExpiresAt(Instant expiresAt) {
         this.expiresAt = expiresAt;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = Instant.now();
     }
 }

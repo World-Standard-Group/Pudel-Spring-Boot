@@ -31,7 +31,7 @@ import group.worldstandard.pudel.core.repository.UserGuildRepository;
 import group.worldstandard.pudel.core.service.CommandExecutionService;
 import group.worldstandard.pudel.core.service.GuildInitializationService;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
  * Listener for guild-related events (join/leave).
@@ -86,15 +86,11 @@ public class GuildEventListener extends ListenerAdapter {
 
             // ✅ SET BOT PRESENCE TIMESTAMP
             if (guild.getBotJoinedAt() == null) {
-                guild.setBotJoinedAt(LocalDateTime.now());
+                guild.setBotJoinedAt(Instant.now());
                 log.info("Bot presence tracked for guild: {} ({})", guildName, guildId);
             }
 
             guildRepository.save(guild);
-
-            // ...existing code...
-
-            // Initialize guild settings with defaults
             guildInitializationService.initializeGuild(event.getGuild());
 
             // ✅ SYNC ALL SLASH COMMANDS TO GUILD IMMEDIATELY

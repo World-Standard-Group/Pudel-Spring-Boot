@@ -7,13 +7,13 @@
  *
  * <h2>Key Components:</h2>
  * <ul>
- *   <li>{@link group.worldstandard.pudel.api.interaction.InteractionManager} - Main manager for all interaction types</li>
- *   <li>{@link group.worldstandard.pudel.api.interaction.SlashCommandHandler} - Handler for slash commands</li>
- *   <li>{@link group.worldstandard.pudel.api.interaction.ContextMenuHandler} - Handler for context menus</li>
- *   <li>{@link group.worldstandard.pudel.api.interaction.ButtonHandler} - Handler for button clicks</li>
- *   <li>{@link group.worldstandard.pudel.api.interaction.SelectMenuHandler} - Handler for select menu interactions</li>
- *   <li>{@link group.worldstandard.pudel.api.interaction.ModalHandler} - Handler for modal submissions</li>
  *   <li>{@link group.worldstandard.pudel.api.interaction.AutoCompleteHandler} - Handler for autocomplete</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.ButtonHandler} - Handler for button clicks</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.ContextMenuHandler} - Handler for context menus</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.InteractionManager} - Main manager for all interaction types</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.ModalHandler} - Handler for modal submissions</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.SelectMenuHandler} - Handler for select menu interactions</li>
+ *   <li>{@link group.worldstandard.pudel.api.interaction.SlashCommandHandler} - Handler for slash commands</li>
  * </ul>
  *
  * <h2>Slash Command Example:</h2>

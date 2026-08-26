@@ -15,7 +15,8 @@
 package group.worldstandard.pudel.core.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+
+import java.time.Instant;
 
 /**
  * Represents a Discord guild entity.
@@ -39,13 +40,13 @@ public class Guild {
     private Integer memberCount;
 
     @Column(name = "joined_at", nullable = false, updatable = false)
-    private LocalDateTime joinedAt;
+    private Instant joinedAt;
 
     @Column(name = "bot_joined_at")
-    private LocalDateTime botJoinedAt;
+    private Instant botJoinedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     // Constructors
     public Guild() {
@@ -54,8 +55,8 @@ public class Guild {
     public Guild(String id, String name) {
         this.id = id;
         this.name = name;
-        this.joinedAt = LocalDateTime.now();
-        this.createdAt = LocalDateTime.now();
+        this.joinedAt = Instant.now();
+        this.createdAt = Instant.now();
     }
 
     // Getters and Setters
@@ -99,27 +100,27 @@ public class Guild {
         this.memberCount = memberCount;
     }
 
-    public LocalDateTime getJoinedAt() {
+    public Instant getJoinedAt() {
         return joinedAt;
     }
 
-    public void setJoinedAt(LocalDateTime joinedAt) {
+    public void setJoinedAt(Instant joinedAt) {
         this.joinedAt = joinedAt;
     }
 
-    public LocalDateTime getBotJoinedAt() {
+    public Instant getBotJoinedAt() {
         return botJoinedAt;
     }
 
-    public void setBotJoinedAt(LocalDateTime botJoinedAt) {
+    public void setBotJoinedAt(Instant botJoinedAt) {
         this.botJoinedAt = botJoinedAt;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 }

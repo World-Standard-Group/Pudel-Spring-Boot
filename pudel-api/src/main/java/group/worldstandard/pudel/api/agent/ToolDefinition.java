@@ -574,6 +574,12 @@ public final class ToolDefinition {
      * whether it is required, and its default value.
      * <p>
      * Provides a method to retrieve the type name suitable for LLM descriptions.
+     *
+     * @param name         the parameter name as exposed to the LLM / caller
+     * @param type         the Java class representing the parameter's data type
+     * @param description  human-readable description of what the parameter is for
+     * @param required     whether the parameter must be supplied
+     * @param defaultValue the default value used when the parameter is omitted (may be null)
      */
     public record ToolParameter(
             String name,

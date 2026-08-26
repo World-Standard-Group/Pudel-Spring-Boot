@@ -84,7 +84,7 @@ ENV DISCORD_REDIRECT_URI=http://localhost/auth/callback
 # Pudel Configuration
 ENV PUDEL_BRANDING_NAME=Pudel
 ENV PUDEL_BRANDING_CODENAME="Canis Lupus Familiaris"
-ENV PUDEL_BRANDING_VERSION=2.3.2
+ENV PUDEL_BRANDING_VERSION=2.4.0
 ENV PUDEL_ADMIN_INITIAL_OWNER=
 
 # JWT Configuration (keys mounted via volume)
@@ -101,8 +101,8 @@ ENV OLLAMA_URL=http://localhost:11434
 ENV OLLAMA_MODEL=qwen3:8b
 
 # Embedding Configuration
-ENV EMBEDDING_ENABLED=true
 ENV EMBEDDING_MODEL=qwen3-embedding:8b
+ENV EMBEDDING_DIMENSION=1024
 
 # Server Configuration
 ENV SERVER_PORT=8080

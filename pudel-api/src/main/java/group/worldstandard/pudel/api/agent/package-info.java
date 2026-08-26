@@ -8,9 +8,9 @@
  * <h2>Key Components:</h2>
  * <ul>
  *   <li>{@link group.worldstandard.pudel.api.agent.AgentTool} - Annotation for marking methods as agent tools</li>
+ *   <li>{@link group.worldstandard.pudel.api.agent.AgentToolContext} - Context provided during tool execution</li>
  *   <li>{@link group.worldstandard.pudel.api.agent.AgentToolProvider} - Interface for tool provider classes</li>
  *   <li>{@link group.worldstandard.pudel.api.agent.AgentToolRegistry} - Registry for managing agent tools</li>
- *   <li>{@link group.worldstandard.pudel.api.agent.AgentToolContext} - Context provided during tool execution</li>
  *   <li>{@link group.worldstandard.pudel.api.agent.ToolDefinition} - Programmatic tool definition builder</li>
  *   <li>{@link group.worldstandard.pudel.api.agent.ToolResult} - Result of tool execution</li>
  * </ul>

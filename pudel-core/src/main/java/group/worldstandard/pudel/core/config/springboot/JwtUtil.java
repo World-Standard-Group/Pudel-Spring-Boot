@@ -190,12 +190,12 @@ public class JwtUtil {
      * Generate a DPoP-bound JWT token.
      * The token will be bound to the client's public key via the JWK thumbprint.
      *
-     * @param userId the user ID
+     * @param subject the user ID
      * @param claims additional claims
      * @param dpopThumbprint the JWK thumbprint from the DPoP proof
      * @return the DPoP-bound JWT token
      */
-    public String generateDPoPBoundToken(String userId, Map<String, Object> claims, String dpopThumbprint) {
+    public String generateDPoPBoundToken(String subject, Map<String, Object> claims, String dpopThumbprint) {
         long now = System.currentTimeMillis();
         Date expiryDate = new Date(now + jwtExpiration);
 
@@ -208,7 +208,7 @@ public class JwtUtil {
         allClaims.put(DPOP_THUMBPRINT_CLAIM, cnf);
 
         return Jwts.builder()
-                .subject(userId)
+                .subject(subject)
                 .claims(allClaims)
                 .issuedAt(new Date(now))
                 .expiration(expiryDate)

@@ -231,6 +231,12 @@ public final class TableSchema {
      * or NUMERIC. Nullability controls whether the column can contain NULL values.
      * Default values are specified as strings and should be compatible
      * with the column's data type.
+     *
+     * @param name         the column name
+     * @param type         the column's data type
+     * @param size         the optional maximum size for variable-length types (e.g. VARCHAR/NUMERIC)
+     * @param nullable     whether the column allows NULL values
+     * @param defaultValue the default value as a string, compatible with the column type (may be null)
      */
     public record ColumnDefinition(
             String name,
@@ -244,7 +250,11 @@ public final class TableSchema {
      * Represents the definition of an index in a database table schema.
      * <p>
      * An index definition specifies whether the index enforces uniqueness
-     * and which columns are included in the index*/
+     * and which columns are included in the index
+     *
+     * @param unique  whether the index enforces uniqueness (no duplicate values)
+     * @param columns the ordered list of column names included in the index
+     */
     public record IndexDefinition(
             boolean unique,
             List<String> columns

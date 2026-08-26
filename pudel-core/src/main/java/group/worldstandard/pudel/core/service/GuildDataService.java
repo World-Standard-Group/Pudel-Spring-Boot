@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,7 +73,7 @@ public class GuildDataService {
                     respondTo,
                     attachmentUrls != null && !attachmentUrls.isEmpty()
                             ? attachmentUrls.toArray(new String[0]) : null,
-                    Timestamp.valueOf(LocalDateTime.now()));
+                    Timestamp.from(Instant.now()));
             logger.debug("Stored dialogue for guild {} user {} (respond_to={})", guildId, userId, respondTo);
         } catch (Exception e) {
             logger.error("Error storing dialogue for guild {}: {}", guildId, e.getMessage());
@@ -127,7 +127,7 @@ public class GuildDataService {
             String sql = "INSERT INTO " + schemaName + ".memory (key, value, category, created_by, created_at, updated_at) " +
                     "VALUES (?, ?, ?, ?, ?, ?) " +
                     "ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = ?";
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             jdbcTemplate.update(sql, key, value, category, createdBy, now, now, value, category, now);
             logger.debug("Stored memory '{}' for guild {}", key, guildId);
         } catch (Exception e) {
@@ -197,7 +197,7 @@ public class GuildDataService {
                     "(user_id, preferred_name, custom_settings, notes, created_at, updated_at) " +
                     "VALUES (?, ?, ?::jsonb, ?, ?, ?) " +
                     "ON CONFLICT (user_id) DO UPDATE SET preferred_name = ?, custom_settings = ?::jsonb, notes = ?, updated_at = ?";
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             jdbcTemplate.update(sql, userId, preferredName, customSettings, notes, now, now,
                     preferredName, customSettings, notes, now);
             logger.debug("Stored user preferences for user {} in guild {}", userId, guildId);

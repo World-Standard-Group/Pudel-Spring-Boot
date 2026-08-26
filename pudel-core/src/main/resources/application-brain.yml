@@ -16,6 +16,7 @@ pudel:
     ollama:
       base-url: "${OLLAMA_URL:http://localhost:11434}"
       model: "${OLLAMA_MODEL:qwen3:8b}"
+      embedding-model: "${EMBEDDING_MODEL:qwen3-embedding:8b}"
       timeout-seconds: 120
       temperature: 0.7
       max-tokens: 65535

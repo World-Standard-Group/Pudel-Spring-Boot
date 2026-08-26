@@ -15,10 +15,12 @@
 package group.worldstandard.pudel.core.controller;
 
 import group.worldstandard.pudel.core.config.springboot.SwaggerAccessFilter;
+import group.worldstandard.pudel.core.config.springboot.JwtUtil;
 import group.worldstandard.pudel.core.entity.AdminWhitelist;
 import group.worldstandard.pudel.core.entity.AdminWhitelist.AdminRole;
 import group.worldstandard.pudel.core.entity.PluginMetadata;
 import group.worldstandard.pudel.core.repository.AdminWhitelistRepository;
+import group.worldstandard.pudel.core.service.DPoPKeyManager;
 import group.worldstandard.pudel.core.service.LogService;
 import group.worldstandard.pudel.core.service.PluginService;
 import group.worldstandard.pudel.core.database.PluginDatabaseService;
@@ -47,7 +49,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -100,6 +102,7 @@ public class AdminController {
     private final AdminWhitelistRepository adminWhitelistRepository;
     private final LogService logService;
     private final PluginDatabaseService pluginDatabaseService;
+    private final DPoPKeyManager dpopKeyManager;
 
     // Pending challenges: challengeId -> ChallengeData
     private final Map<String, ChallengeData> pendingChallenges = new ConcurrentHashMap<>();
@@ -136,15 +139,20 @@ public class AdminController {
 
     private PrivateKey privateKey;
     private PublicKey publicKey;
+    private final JwtUtil jwtUtil;
 
     public AdminController(PluginService pluginService,
                            AdminWhitelistRepository adminWhitelistRepository,
                            LogService logService,
-                           PluginDatabaseService pluginDatabaseService) {
+                           PluginDatabaseService pluginDatabaseService,
+                           DPoPKeyManager dpopKeyManager,
+                           JwtUtil jwtUtil) {
         this.pluginService = pluginService;
         this.adminWhitelistRepository = adminWhitelistRepository;
         this.logService = logService;
         this.pluginDatabaseService = pluginDatabaseService;
+        this.dpopKeyManager = dpopKeyManager;
+        this.jwtUtil = jwtUtil;
     }
 
     // =====================================================
@@ -435,6 +443,7 @@ public class AdminController {
      */
     @PostMapping("/auth/mutual")
     public ResponseEntity<?> authenticateMutual(
+            HttpServletRequest httpRequest,
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody MutualAuthRequest request) {
         log.info("Admin mutual auth request received. AuthHeader present: {}, AuthHeader prefix: {}",
@@ -444,15 +453,24 @@ public class AdminController {
             ensureKeysLoaded();
             ensureInitialOwner();
 
-            // Step 1: Validate user is authenticated via Discord OAuth
-            // Accept both Bearer and DPoP tokens (DPoP is validated by the filter)
-            if (authHeader == null || (!authHeader.startsWith("Bearer ") && !authHeader.startsWith("DPoP "))) {
-                log.warn("Admin mutual auth failed: Invalid auth header format");
+            // Step 1: Validate user is authenticated via Discord OAuth (DPoP-bound).
+            // Admin sessions are DPoP-bound (RFC 9449): the session token is useless
+            // without the proof-of-possession key, so we REQUIRE the DPoP scheme here
+            // and bind the issued admin JWT to the caller's DPoP key thumbprint.
+            if (authHeader == null || !authHeader.startsWith("DPoP ")) {
+                log.warn("Admin mutual auth failed: DPoP scheme required (got: {})",
+                        authHeader == null ? "null" : authHeader.substring(0, Math.min(authHeader.length(), 10)));
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ErrorResponse("Discord OAuth token required. Please login with Discord first."));
+                        .body(new ErrorResponse("DPoP-bound Discord OAuth token required. Please login with Discord (DPoP) first."));
             }
 
-            // Extract token (works for both "Bearer {token}" and "DPoP {token}")
+            String dpopKeyId = httpRequest.getHeader("X-DPoP-Key-Id");
+            if (dpopKeyId == null || dpopKeyId.isBlank()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ErrorResponse("Missing X-DPoP-Key-Id header. DPoP key id is required."));
+            }
+
+            // Extract token (DPoP <token>)
             String userToken = extractTokenFromAuthHeader(authHeader);
             if (userToken == null || userToken.isBlank()) {
                 log.warn("Admin mutual auth failed: Empty token");
@@ -465,6 +483,8 @@ public class AdminController {
             String discordUserId;
             String discordUsername;
 
+            String presentedThumbprint;
+
             try {
                 Claims userClaims = Jwts.parser()
                         .verifyWith(publicKey)
@@ -476,6 +496,25 @@ public class AdminController {
                 if ("pudel-admin-session".equals(userClaims.getSubject())) {
                     return ResponseEntity.badRequest()
                             .body(new ErrorResponse("Use your Discord OAuth token, not admin token"));
+                }
+
+                // Ensure the presented DPoP key actually matches the user token's binding.
+                // The JwtAuthenticationFilter already verified the DPoP proof, but this
+                // guards against a key id header that doesn't correspond to the token.
+                String userThumbprint = jwtUtil.getDPoPThumbprint(userToken);
+                if (userThumbprint == null) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(new ErrorResponse("Discord OAuth token is not DPoP-bound"));
+                }
+                try {
+                    presentedThumbprint = dpopKeyManager.getPublicKeyThumbprint(dpopKeyId);
+                } catch (Exception e) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(new ErrorResponse("Unknown DPoP key id"));
+                }
+                if (!userThumbprint.equals(presentedThumbprint)) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(new ErrorResponse("DPoP key mismatch"));
                 }
 
                 discordUserId = userClaims.get("discordUserId", String.class);
@@ -575,28 +614,28 @@ public class AdminController {
             // Step 6: Signature valid! Remove challenge and create session
             pendingChallenges.remove(request.challengeId);
 
-            admin.setLastLogin(LocalDateTime.now());
+            admin.setLastLogin(Instant.now());
             if (discordUsername != null) {
                 admin.setDiscordUsername(discordUsername);
             }
             adminWhitelistRepository.save(admin);
 
-            // Generate AdminJWT session token
+            // Generate AdminJWT session token — DPoP-bound to the caller's key (RFC 9449).
+            // A stolen admin token is useless without the proof-of-possession key, so it is
+            // no longer a replayable bearer token.
             String sessionId = UUID.randomUUID().toString();
             long sessionExpiry = System.currentTimeMillis() + ADMIN_SESSION_EXPIRY_MS;
 
-            String adminToken = Jwts.builder()
-                    .subject("pudel-admin-session")
-                    .claim("sessionId", sessionId)
-                    .claim("discordUserId", admin.getDiscordUserId())
-                    .claim("discordUsername", admin.getDiscordUsername())
-                    .claim("adminRole", admin.getAdminRole().name())
-                    .claim("canModify", admin.canModify())
-                    .claim("canManageAdmins", admin.canManageAdmins())
-                    .issuedAt(new Date())
-                    .expiration(new Date(sessionExpiry))
-                    .signWith(privateKey, Jwts.SIG.RS256)
-                    .compact();
+            Map<String, Object> adminClaims = new HashMap<>();
+            adminClaims.put("sessionId", sessionId);
+            adminClaims.put("discordUserId", admin.getDiscordUserId());
+            adminClaims.put("discordUsername", admin.getDiscordUsername());
+            adminClaims.put("adminRole", admin.getAdminRole().name());
+            adminClaims.put("canModify", admin.canModify());
+            adminClaims.put("canManageAdmins", admin.canManageAdmins());
+
+            String adminToken = jwtUtil.generateDPoPBoundToken(
+                    "pudel-admin-session", adminClaims, presentedThumbprint);
 
             activeSessions.put(sessionId, new AdminSessionData(
                     sessionId,
@@ -605,8 +644,19 @@ public class AdminController {
                     sessionExpiry
             ));
 
-            log.info("Mutual RSA auth successful: {} ({}) with role {}",
-                    admin.getDiscordUsername(), admin.getDiscordUserId(), admin.getAdminRole());
+            // HttpOnly + Secure + SameSite cookie carrying the admin session JWT.
+            // Moving the token out of localStorage (XSS-readable) into an HttpOnly cookie
+            // removes the at-rest hijack vector; the cookie is auto-sent by the browser and
+            // cannot be read by page scripts. (Session still expires on restart — intentional.)
+            boolean secure = isSecureRequest(httpRequest);
+            ResponseCookie sessionCookie = ResponseCookie.from(SwaggerAccessFilter.SWAGGER_SESSION_COOKIE, adminToken)
+                    .httpOnly(true)
+                    .secure(secure)
+                    .sameSite("Strict")
+                    .path("/")
+                    .maxAge(ADMIN_SESSION_EXPIRY_MS / 1000)
+                    .build();
+
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -620,7 +670,9 @@ public class AdminController {
             response.put("expiresAt", sessionExpiry);
             response.put("expiresIn", ADMIN_SESSION_EXPIRY_MS / 1000);
 
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, sessionCookie.toString())
+                    .body(response);
         } catch (Exception e) {
             log.error("Mutual auth failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -648,7 +700,8 @@ public class AdminController {
      * Returns AdminSessionData if valid, null otherwise.
      */
     private AdminSessionData validateAdminSession(String authHeader) {
-        if (authHeader == null || (!authHeader.startsWith("Bearer ") && !authHeader.startsWith("DPoP "))) {
+        // Admin sessions are DPoP-bound; reject plain Bearer to prevent bearer replay.
+        if (authHeader == null || !authHeader.startsWith("DPoP ")) {
             return null;
         }
 
@@ -916,8 +969,9 @@ public class AdminController {
         // Try Authorization header first, fall back to query-parameter token
         AdminSessionData session = validateAdminSession(authHeader);
         if (session == null && queryToken != null && !queryToken.isBlank()) {
-            // Wrap the raw token so validateAdminSession can parse it
-            session = validateAdminSession("Bearer " + queryToken);
+            // Wrap the raw token with the DPoP scheme: admin sessions are DPoP-bound,
+            // so validateAdminSession requires the "DPoP " prefix (it rejects "Bearer ").
+            session = validateAdminSession("DPoP " + queryToken);
         }
         if (session == null) {
             SseEmitter emitter = new SseEmitter(0L);

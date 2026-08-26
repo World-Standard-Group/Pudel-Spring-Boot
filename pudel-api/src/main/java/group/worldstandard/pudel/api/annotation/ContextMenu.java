@@ -18,6 +18,9 @@
  */
 package group.worldstandard.pudel.api.annotation;
 
+import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.Command;
 
 import java.lang.annotation.ElementType;
@@ -51,9 +54,24 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
+ * <h2>With Permissions, IntegrationType &amp; InteractionContextType:</h2>
+ * <pre>{@code
+ * @ContextMenu(
+ *     name = "Ban User",
+ *     type = Command.Type.USER,
+ *     permissions = {Permission.BAN_MEMBERS},
+ *     integrationTo = {IntegrationType.GUILD_INSTALL},
+ *     integrationContext = {InteractionContextType.GUILD}
+ * )
+ * public void banUser(UserContextInteractionEvent event) {
+ *     // only members with BAN_MEMBERS can see/use this menu in guilds
+ * }
+ * }</pre>
+ *
  * <p>The core automatically:</p>
  * <ul>
  *   <li>Registers the command when plugin is enabled</li>
+ *   <li>Applies default member permissions, integration types and interaction contexts</li>
  *   <li>Syncs to Discord (globally by default)</li>
  *   <li>Unregisters and re-syncs when plugin is disabled</li>
  * </ul>
@@ -62,12 +80,20 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface ContextMenu {
     /**
-     * Returns the display name of the context menu.
-     * This name is shown to users in the Discord client when they right-click on a user or message.
+     * Returns the base name of the context menu.
+     * This name is in format of 'baseName > funcName' to charity mixed plugin may had mismatch display name.
      *
-     * @return the name of the context menu (Max 32 characters)
+     * @return the base name of the context menu (the format result must not excess 32 characters)
      */
-    String name();
+    String baseName();
+
+    /**
+     * Returns the function name of the context menu.
+     * This name is in format of 'baseName > funcName' to charity mixed plugin may had mismatch display name.
+     *
+     * @return the function name of the context menu (the format result must not excess 32 characters)
+     */
+    String funcName();
 
     /**
      * Returns the type of context menu this command represents.
@@ -101,4 +127,48 @@ public @interface ContextMenu {
      * @return an array of guild IDs, or an empty array if not specified or if global registration is enabled
      */
     long[] guildIds() default {};
+
+    /**
+     * Indicates whether the context menu is NSFW (Not Safe For Work).
+     * If set to true, the menu will only be available in channels marked as NSFW.
+     * Defaults to {@code true}.
+     *
+     * @return {@code true} if the context menu is NSFW, {@code false} otherwise
+     */
+    boolean nsfw() default true;
+
+    /**
+     * Returns the default member permissions required to see and use this context menu.
+     * <p>
+     * These permissions define the minimum set of privileges that a member must have
+     * in the guild to have this context menu visible and executable. Discord enforces
+     * these as <i>default member permissions</i> — members lacking them will not see
+     * the menu in their client.
+     * <p>
+     * If no permissions are specified, the context menu is available to every member
+     * who can normally use it in the given {@link #integrationContext()}.
+     *
+     * @return an array of {@link Permission} enums representing the required permissions; defaults to an empty array
+     */
+    Permission[] permissions() default {};
+
+    /**
+     * Returns the integration types for which this context menu is available.
+     * Integration types determine how and where the command can be installed and used.
+     * By default, the context menu is integrated as a guild install type.
+     *
+     * @return an array of {@link IntegrationType} enums indicating the supported integration types; defaults to {@link IntegrationType#GUILD_INSTALL}
+     */
+    IntegrationType[] integrationTo() default {IntegrationType.GUILD_INSTALL};
+
+    /**
+     * Returns the interaction context types in which this context menu is available.
+     * Interaction contexts define where the command can be used, such as in guilds,
+     * direct messages, or other specific environments. This setting controls the
+     * visibility and accessibility of the menu based on the user's current context.
+     *
+     * @return an array of {@link InteractionContextType} enums indicating the supported interaction contexts;
+     *         defaults to {@link InteractionContextType#GUILD}
+     */
+    InteractionContextType[] integrationContext() default {InteractionContextType.GUILD};
 }

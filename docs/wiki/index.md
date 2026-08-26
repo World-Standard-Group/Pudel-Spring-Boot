@@ -2,9 +2,15 @@
 
 Welcome to the official Pudel documentation! Pudel is an AI-powered Discord bot framework with an annotation-based plugin system.
 
-**Current Version: 2.3.2**
+**Current Version: 2.4.0**
 
 ---
+
+## What's New in v2.4.0
+
+### ContextMenu command improvement
+- `ContextMenu` command became more likely to `SlashCommand` and ready to be integrated
+- Fix bug for embedding api of Ollama
 
 ## What's New in v2.3.2
 
@@ -159,11 +165,11 @@ cp .env.example .env
 # Edit .env with your Discord token
 
 # Run
-java -jar pudel-core/target/pudel-core-2.3.1.jar
+java -jar pudel-core/target/pudel-core-2.4.0.jar
 ```
 
 See [Getting Started](./getting-started) for detailed setup.
 
 ---
 
-*Last updated: 2026-07-10 for Pudel v2.3.2*
+*Last updated: 2026-07-24 for Pudel v2.4.0*

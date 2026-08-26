@@ -6,7 +6,7 @@
     <parent>
         <groupId>group.worldstandard</groupId>
         <artifactId>pudel</artifactId>
-        <version>2.3.2</version>
+        <version>2.4.0</version>
     </parent>
 
     <name>Pudel Core</name>
@@ -46,10 +46,6 @@
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
-        <jdave.version>0.1.8</jdave.version>
-        <jwt.version>0.13.0</jwt.version>
-        <langchain4j.version>1.17.2</langchain4j.version>
 
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
@@ -94,7 +90,7 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.0.3</version>
+            <version>${swagger.openapi.version}</version>
         </dependency>
         <!-- Encryption for sensitive data -->
         <dependency>
@@ -163,21 +159,21 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.13</version>
+            <version>${jdbc.postgresql.version}</version>
         </dependency>
 
         <!-- Apache Commons Lang -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
-            <version>3.20.0</version>
+            <version>${apache.commonlang.version}</version>
         </dependency>
 
         <!-- JSON Processing -->
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
-            <version>20260522</version>
+            <version>${json.version}</version>
         </dependency>
 
         <!-- Test Dependencies -->

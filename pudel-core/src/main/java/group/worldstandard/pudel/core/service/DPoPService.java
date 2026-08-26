@@ -29,6 +29,7 @@ import java.security.spec.*;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Service for validating DPoP proofs in BFF-style architecture with database-backed keys.
@@ -52,6 +53,18 @@ public class DPoPService {
     private static final Logger log = LoggerFactory.getLogger(DPoPService.class);
 
     private final DPoPKeyManager dpopKeyManager;
+
+    /**
+     * Single-use ledger for DPoP proof {@code jti}s (RFC 9449 §11.1 replay defense).
+     * Keyed by {@code keyId:jti}; value is the proof's expiry (iat + 60s skew window).
+     * A jti seen again before its window lapses is a replay and is rejected. The map
+     * is bounded by the proof lifetime: entries are lazily purged on first access after
+     * expiry, so memory stays flat (one entry per distinct proof per key, max ~60s old).
+     * In-memory by design — matches the admin session's accepted no-persistence stance.
+     */
+    private final ConcurrentHashMap<String, Long> usedJtis = new ConcurrentHashMap<>();
+
+    private static final long JTI_SKEW_WINDOW_MS = 60_000L;
 
     public DPoPService(DPoPKeyManager dpopKeyManager) {
         this.dpopKeyManager = dpopKeyManager;
@@ -139,10 +152,21 @@ public class DPoPService {
                 return DPoPValidationResult.invalid("iat too old or in future");
             }
 
-            // Validate jti (unique identifier)
+            // Validate jti (unique identifier) — single-use to defeat proof replay (RFC 9449 §11.1)
             String jti = claims.getId();
             if (jti == null || jti.isEmpty()) {
                 return DPoPValidationResult.invalid("Missing jti claim");
+            }
+            String jtiKey = keyId + ":" + jti;
+            long proofExpiry = iat.getTime() + JTI_SKEW_WINDOW_MS;
+            // putIfAbsent: first use of this jti stores the expiry and returns null (allowed).
+            // A second use within the window finds the existing entry -> reject as replay.
+            // Stale entries are purged lazily first so a long-expired jti can be reused safely.
+            usedJtis.entrySet().removeIf(e -> e.getValue() < System.currentTimeMillis());
+            Long existing = usedJtis.putIfAbsent(jtiKey, proofExpiry);
+            if (existing != null) {
+                log.debug("DPoP jti reuse detected (replay): key={}", jtiKey);
+                return DPoPValidationResult.invalid("jti already used (replay detected)");
             }
 
             // Validate ath (access token hash) if access token provided

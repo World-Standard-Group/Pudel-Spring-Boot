@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
@@ -47,6 +48,7 @@ public class OllamaClient {
 
     private final WebClient webClient;
     private final String model;
+    private final String embeddingModel;
     private final double temperature;
     private final int maxTokens;
     private final Duration timeout;
@@ -56,7 +58,12 @@ public class OllamaClient {
     private volatile long lastAvailabilityCheck = 0;
 
     public OllamaClient(String baseUrl, String model, double temperature, int maxTokens, int timeoutSeconds) {
+        this(baseUrl, model, model, temperature, maxTokens, timeoutSeconds);
+    }
+
+    public OllamaClient(String baseUrl, String model, String embeddingModel, double temperature, int maxTokens, int timeoutSeconds) {
         this.model = model;
+        this.embeddingModel = embeddingModel;
         this.temperature = temperature;
         this.maxTokens = maxTokens;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
@@ -135,7 +142,7 @@ public class OllamaClient {
                     })
                     .doOnError(error -> {
                         logger.error("Ollama streaming error: {}", error.getMessage());
-                        if (error instanceof org.springframework.web.reactive.function.client.WebClientResponseException wce) {
+                        if (error instanceof WebClientResponseException wce) {
                             logger.error("Ollama error response body: {}", wce.getResponseBodyAsString());
                         }
                         // Return whatever we have so far
@@ -233,6 +240,56 @@ public class OllamaClient {
             logger.error("Error creating Ollama flux: {}", e.getMessage());
             return Flux.empty();
         }
+    }
+
+    // ===============================
+    // Embeddings
+    // ===============================
+
+    /**
+     * Generate an embedding vector for the given text via Ollama's /api/embeddings.
+     * <p>
+     * Returns {@code null} if the server is unreachable or the response cannot be parsed,
+     * so callers can gracefully skip embedding storage.
+     *
+     * @param text the text to embed
+     * @return the embedding vector, or null on failure
+     */
+    public float[] embed(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            ObjectNode requestBody = MAPPER.createObjectNode();
+            requestBody.put("model", embeddingModel);
+            requestBody.put("input", text);
+
+            String response = webClient.post()
+                    .uri("/api/embed")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(requestBody.toString())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .timeout(timeout)
+                    .block();
+
+            if (response == null) {
+                return null;
+            }
+
+            JsonNode root = MAPPER.readTree(response);
+            JsonNode embeddingsNode = root.get("embeddings");
+            if (embeddingsNode != null && embeddingsNode.isArray()) {
+                float[] result = new float[embeddingsNode.size()];
+                for (int i = 0; i < embeddingsNode.size(); i++) {
+                    result[i] = (float) embeddingsNode.get(i).asDouble();
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            logger.warn("Ollama embedding error: {}", e.getMessage());
+        }
+        return null;
     }
 
     // ===============================

@@ -14,7 +14,7 @@
  */
 package group.worldstandard.pudel.core.brain.context;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -52,24 +52,35 @@ public record PassiveContextEntry(
         List<String> attachmentUrls,
         Long replyToMessageId,
         List<ForwardedMessageRef> forwardedMessages,
-        LocalDateTime timestamp
+        Instant timestamp
 ) {
     /**
      * Creates a minimal passive context entry with just the essential fields.
      */
     public static PassiveContextEntry minimal(long messageId, long userId, long channelId, String content) {
         return new PassiveContextEntry(messageId, userId, channelId, content,
-                Map.of(), List.of(), null, List.of(), LocalDateTime.now());
+                Map.of(), List.of(), null, List.of(), Instant.now());
     }
 
     /**
      * Reference to a forwarded message.
-     * Note: MessageSnapshot doesn't contain author info, only the forwarded content.
+     * <p>
+     * Discord {@link net.dv8tion.jda.api.entities.messages.MessageSnapshot} does not expose the
+     * original message author or id, so {@code messageId} is best-effort (0 when unknown) and
+     * {@code authorId}/{@code authorName} are intentionally left empty. Forwarded messages are
+     * recorded in the dedicated {@code forwarded_messages} table; this record only carries the
+     * extracted content for inline display and retrieval.
      *
-     * @param content the forwarded message's content
+     * @param messageId the forwarded message's id if known (0 when Discord does not expose it)
+     * @param content   the forwarded message's content
      */
     public record ForwardedMessageRef(
+            long messageId,
             String content
-    ) {}
+    ) {
+        public ForwardedMessageRef(String content) {
+            this(0L, content);
+        }
+    }
 }
 

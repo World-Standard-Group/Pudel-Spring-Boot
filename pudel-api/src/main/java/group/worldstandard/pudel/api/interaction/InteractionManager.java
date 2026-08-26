@@ -293,6 +293,13 @@ public interface InteractionManager {
 
     /**
      * Statistics about registered interaction handlers.
+     *
+     * @param slashCommandCount        number of registered slash commands
+     * @param contextMenuCount         number of registered context menus
+     * @param buttonHandlerCount       number of registered button handlers
+     * @param selectMenuHandlerCount   number of registered select-menu handlers
+     * @param modalHandlerCount        number of registered modal handlers
+     * @param autoCompleteHandlerCount number of registered auto-complete handlers
      */
     record InteractionStats(
             int slashCommandCount,

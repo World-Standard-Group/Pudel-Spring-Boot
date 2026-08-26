@@ -15,7 +15,8 @@
 package group.worldstandard.pudel.core.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+
+import java.time.Instant;
 
 /**
  * Represents a Discord user entity.
@@ -48,13 +49,13 @@ public class User {
     private String refreshToken;
 
     @Column(name = "token_expires_at")
-    private LocalDateTime tokenExpiresAt;
+    private Instant tokenExpiresAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     // Constructors
     public User() {
@@ -63,8 +64,8 @@ public class User {
     public User(String id, String username) {
         this.id = id;
         this.username = username;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
     }
 
     // Getters and Setters
@@ -132,32 +133,32 @@ public class User {
         this.refreshToken = refreshToken;
     }
 
-    public LocalDateTime getTokenExpiresAt() {
+    public Instant getTokenExpiresAt() {
         return tokenExpiresAt;
     }
 
-    public void setTokenExpiresAt(LocalDateTime tokenExpiresAt) {
+    public void setTokenExpiresAt(Instant tokenExpiresAt) {
         this.tokenExpiresAt = tokenExpiresAt;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = Instant.now();
     }
 }

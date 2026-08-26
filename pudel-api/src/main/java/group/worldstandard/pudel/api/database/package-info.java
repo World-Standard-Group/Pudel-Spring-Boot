@@ -7,15 +7,15 @@
  *
  * <h2>Key Components:</h2>
  * <ul>
- *   <li>{@link group.worldstandard.pudel.api.database.PluginDatabaseManager} - Main database access interface</li>
- *   <li>{@link group.worldstandard.pudel.api.database.PluginRepository} - Repository for CRUD operations</li>
- *   <li>{@link group.worldstandard.pudel.api.database.PluginKeyValueStore} - Simple key-value storage</li>
- *   <li>{@link group.worldstandard.pudel.api.database.TableSchema} - Table schema definition builder</li>
- *   <li>{@link group.worldstandard.pudel.api.database.Entity} - Annotation for entity classes</li>
  *   <li>{@link group.worldstandard.pudel.api.database.Column} - Annotation for field-to-column mapping</li>
  *   <li>{@link group.worldstandard.pudel.api.database.ColumnType} - Enum of supported column types</li>
+ *   <li>{@link group.worldstandard.pudel.api.database.Entity} - Annotation for entity classes</li>
+ *   <li>{@link group.worldstandard.pudel.api.database.PluginDatabaseManager} - Main database access interface</li>
+ *   <li>{@link group.worldstandard.pudel.api.database.PluginKeyValueStore} - Simple key-value storage</li>
  *   <li>{@link group.worldstandard.pudel.api.database.PluginMigration} - Interface for schema migrations</li>
+ *   <li>{@link group.worldstandard.pudel.api.database.PluginRepository} - Repository for CRUD operations</li>
  *   <li>{@link group.worldstandard.pudel.api.database.QueryBuilder} - Fluent query builder</li>
+ *   <li>{@link group.worldstandard.pudel.api.database.TableSchema} - Table schema definition builder</li>
  * </ul>
  *
  * <h2>Basic Usage:</h2>

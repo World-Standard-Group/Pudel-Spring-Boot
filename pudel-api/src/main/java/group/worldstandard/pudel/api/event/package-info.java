@@ -8,10 +8,10 @@
  *
  * <h2>Key Components:</h2>
  * <ul>
- *   <li>{@link group.worldstandard.pudel.api.event.EventManager} - Manager for listener registration</li>
- *   <li>{@link group.worldstandard.pudel.api.event.Listener} - Marker interface for listener classes</li>
  *   <li>{@link group.worldstandard.pudel.api.event.EventHandler} - Annotation for event handler methods</li>
+ *   <li>{@link group.worldstandard.pudel.api.event.EventManager} - Manager for listener registration</li>
  *   <li>{@link group.worldstandard.pudel.api.event.EventPriority} - Enum for handler priority</li>
+ *   <li>{@link group.worldstandard.pudel.api.event.Listener} - Marker interface for listener classes</li>
  *   <li>{@link group.worldstandard.pudel.api.event.PluginEventListener} - Typed event listener interface</li>
  * </ul>
  *

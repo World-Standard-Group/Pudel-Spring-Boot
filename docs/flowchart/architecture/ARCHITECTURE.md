@@ -1,4 +1,4 @@
-# Pudel Architecture v2.3.1
+# Pudel Architecture v2.3.2
 
 This document describes the complete architecture of Pudel Discord Bot — reflecting the current implementation with Components V2 interactive panels, two-tier plugin control (admin global + guild local), per-guild command sync, and the annotation-based plugin system.
 
@@ -779,3 +779,4 @@ See: [AdminMutualAuth.mermaid](./AdminMutualAuth.mermaid)
 ---
 
 *Last updated: 2026-07-10 — schema is now defined in Java (schema-as-code / self-reconciling); `init.sql` removed.*
+

@@ -89,6 +89,18 @@ public class EntityExtractor {
             entities.put("emojis", emojis);
         }
 
+        // Extract Unicode emojis (kept in entities for AI reference; not stored as separate column)
+        List<String> unicodeEmojis = extractUnicodeEmojis(content);
+        if (!unicodeEmojis.isEmpty()) {
+            entities.put("unicode_emojis", unicodeEmojis);
+        }
+
+        // Extract stickers from the message
+        List<String> stickers = extractStickers(message);
+        if (!stickers.isEmpty()) {
+            entities.put("stickers", stickers);
+        }
+
         // Extract URLs
         List<String> urls = extractUrls(content);
         if (!urls.isEmpty()) {
@@ -230,6 +242,25 @@ public class EntityExtractor {
             emojis.add(matcher.group(1) + ":" + matcher.group(2));
         }
         return emojis;
+    }
+
+    private List<String> extractUnicodeEmojis(String content) {
+        List<String> emojis = new ArrayList<>();
+        content.codePoints().forEach(cp -> {
+            if (Character.isEmoji(cp) && cp != 0x200d && cp != 0xfe0f && cp != 0x20e3) {
+                emojis.add(new String(Character.toChars(cp)));
+            }
+        });
+        return emojis;
+    }
+
+    private List<String> extractStickers(Message message) {
+        List<String> stickers = new ArrayList<>();
+        for (var sticker : message.getStickers()) {
+            // Record id + name so the AI can reference which sticker was used.
+            stickers.add(sticker.getId() + ":" + (sticker.getName() != null ? sticker.getName() : "unknown"));
+        }
+        return stickers;
     }
 
     private List<String> extractUrls(String content) {

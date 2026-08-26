@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import group.worldstandard.pudel.core.brain.agent.AgentDataExecutor;
 
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -175,7 +175,7 @@ public class AgentDataExecutorImpl implements AgentDataExecutor {
             String sql = String.format(
                     "INSERT INTO %s.%s (title, content, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
                     schemaName, tableName);
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             Long id = jdbcTemplate.queryForObject(sql, Long.class, title, content, createdBy, now, now);
 
             logger.debug("Agent inserted data into {}.{}: id={}", schemaName, tableName, id);
@@ -243,7 +243,7 @@ public class AgentDataExecutorImpl implements AgentDataExecutor {
             String sql = String.format(
                     "UPDATE %s.%s SET title = ?, content = ?, updated_at = ? WHERE id = ?",
                     schemaName, tableName);
-            int updated = jdbcTemplate.update(sql, newTitle, newContent, Timestamp.valueOf(LocalDateTime.now()), id);
+            int updated = jdbcTemplate.update(sql, newTitle, newContent, Timestamp.from(Instant.now()), id);
             return updated > 0;
 
         } catch (Exception e) {
@@ -280,7 +280,7 @@ public class AgentDataExecutorImpl implements AgentDataExecutor {
             String sql = "INSERT INTO " + schemaName + ".memory (key, value, category, created_by, created_at, updated_at) " +
                     "VALUES (?, ?, ?, ?, ?, ?) " +
                     "ON CONFLICT (key) DO UPDATE SET value = ?, category = ?, updated_at = ?";
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             jdbcTemplate.update(sql, key, value, category, createdBy, now, now, value, category, now);
 
         } catch (Exception e) {
@@ -366,7 +366,7 @@ public class AgentDataExecutorImpl implements AgentDataExecutor {
         try {
             String sql = "INSERT INTO " + schemaName + ".agent_table_metadata (table_name, description, created_by, created_at) " +
                     "VALUES (?, ?, ?, ?) ON CONFLICT (table_name) DO UPDATE SET description = ?, created_by = ?";
-            Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+            Timestamp now = Timestamp.from(Instant.now());
             jdbcTemplate.update(sql, tableName, description, createdBy, now, description, createdBy);
         } catch (Exception e) {
             logger.warn("Could not register table metadata: {}", e.getMessage());

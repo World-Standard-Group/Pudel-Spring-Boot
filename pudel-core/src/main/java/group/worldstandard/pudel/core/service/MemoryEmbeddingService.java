@@ -22,8 +22,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import group.worldstandard.pudel.core.config.brain.ChatbotConfig;
 import group.worldstandard.pudel.core.config.brain.MemoryConfig;
+import group.worldstandard.pudel.core.brain.ollama.OllamaClient;
 
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -46,15 +49,18 @@ public class MemoryEmbeddingService {
     private final ChatbotConfig chatbotConfig;
     private final MemoryConfig memoryConfig;
     private final SchemaManagementService schemaManagementService;
+    private final OllamaClient ollamaClient;
 
     public MemoryEmbeddingService(JdbcTemplate jdbcTemplate,
                                    ChatbotConfig chatbotConfig,
                                    MemoryConfig memoryConfig,
-                                   SchemaManagementService schemaManagementService) {
+                                   SchemaManagementService schemaManagementService,
+                                   OllamaClient ollamaClient) {
         this.jdbcTemplate = jdbcTemplate;
         this.chatbotConfig = chatbotConfig;
         this.memoryConfig = memoryConfig;
         this.schemaManagementService = schemaManagementService;
+        this.ollamaClient = ollamaClient;
 
         // Hand the embedding dimension/lists to the schema service so the
         // declarative table definition matches the configured model exactly.
@@ -117,6 +123,69 @@ public class MemoryEmbeddingService {
             );
         } catch (Exception e) {
             logger.error("Error storing dialogue embedding: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Store an embedding for a passive context entry.
+     * <p>
+     * Generates the embedding via Ollama and persists it to {@code passive_context_embeddings}.
+     * No-ops if pgvector is unavailable, embeddings are disabled, or the content is blank.
+     *
+     * @param schemaName        the schema (guild_/user_) the entry lives in
+     * @param passiveContextId  the passive_context.id (FK)
+     * @param content           the raw message content to embed
+     */
+    public void storePassiveContextEmbedding(String schemaName, long passiveContextId, String content) {
+        if (!isPgvectorAvailable() || !chatbotConfig.getEmbedding().isEnabled()) {
+            return;
+        }
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        try {
+            float[] embedding = ollamaClient.embed(content);
+            if (embedding == null || embedding.length == 0) {
+                return;
+            }
+            String vectorString = vectorToString(embedding);
+            jdbcTemplate.update(
+                    String.format("INSERT INTO %s.passive_context_embeddings (passive_context_id, embedding) VALUES (?, ?::vector)", schemaName),
+                    passiveContextId, vectorString
+            );
+        } catch (Exception e) {
+            logger.warn("Error storing passive context embedding: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Search for similar passive context entries using vector similarity.
+     */
+    public List<Map<String, Object>> searchSimilarPassiveContext(String schemaName, float[] queryEmbedding, int limit) {
+        if (!isPgvectorAvailable()) {
+            return List.of();
+        }
+
+        try {
+            String vectorString = vectorToString(queryEmbedding);
+            int probes = chatbotConfig.getEmbedding().getIvfProbes();
+            double minSimilarity = memoryConfig.getSemanticSearch().getMinSimilarity();
+
+            jdbcTemplate.execute(String.format("SET ivfflat.probes = %d", probes));
+
+            String sql = String.format("""
+                SELECT pc.*, 1 - (pce.embedding <=> ?::vector) as similarity
+                FROM %s.passive_context pc
+                JOIN %s.passive_context_embeddings pce ON pc.id = pce.passive_context_id
+                WHERE 1 - (pce.embedding <=> ?::vector) >= ?
+                ORDER BY pce.embedding <=> ?::vector
+                LIMIT ?
+                """, schemaName, schemaName);
+
+            return jdbcTemplate.queryForList(sql, vectorString, vectorString, minSimilarity, vectorString, limit);
+        } catch (Exception e) {
+            logger.error("Error searching similar passive context: {}", e.getMessage());
+            return List.of();
         }
     }
 
@@ -245,7 +314,7 @@ public class MemoryEmbeddingService {
 
             // Calculate how many to keep
             long keepCount = (currentCount * keepPercentage) / 100;
-            LocalDateTime cutoffDate = LocalDateTime.now().minusDays(minAgeDays);
+            Instant cutoffDate = Instant.now().minus(Duration.ofDays(minAgeDays));
 
             // Delete old entries beyond the keep threshold
             String deleteSql = String.format("""
@@ -258,7 +327,7 @@ public class MemoryEmbeddingService {
                 AND created_at < ?
                 """, schemaName, schemaName, keepCount);
 
-            int deleted = jdbcTemplate.update(deleteSql, cutoffDate);
+            int deleted = jdbcTemplate.update(deleteSql, Timestamp.from(cutoffDate));
 
             if (deleted > 0) {
                 logger.info("Cleaned up {} old dialogue entries from {}", deleted, schemaName);

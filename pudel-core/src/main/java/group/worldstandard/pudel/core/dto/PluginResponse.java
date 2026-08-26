@@ -14,7 +14,7 @@
  */
 package group.worldstandard.pudel.core.dto;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
  * DTO for plugin response in the marketplace.
@@ -35,14 +35,14 @@ public class PluginResponse {
     private boolean commercial;
     private int priceCents;
     private String contactEmail;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private Instant createdAt;
+    private Instant updatedAt;
 
     public PluginResponse() {}
 
     public PluginResponse(String id, String name, String description, String category,
                           String author, String authorId, String version, long downloads,
-                          String sourceUrl, LocalDateTime createdAt, LocalDateTime updatedAt) {
+                          String sourceUrl, Instant createdAt, Instant updatedAt) {
         this(id, name, description, category, author, authorId, version, downloads,
              sourceUrl, "MIT", "MIT License", false, 0, null, createdAt, updatedAt);
     }
@@ -51,7 +51,7 @@ public class PluginResponse {
                           String author, String authorId, String version, long downloads,
                           String sourceUrl, String licenseType, String licenseDisplayName,
                           boolean commercial, int priceCents, String contactEmail,
-                          LocalDateTime createdAt, LocalDateTime updatedAt) {
+                          Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -182,19 +182,19 @@ public class PluginResponse {
         this.contactEmail = contactEmail;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
     }
 }

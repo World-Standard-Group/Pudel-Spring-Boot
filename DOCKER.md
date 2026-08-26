@@ -130,13 +130,13 @@ docker compose --profile ollama up -d
 docker compose up -d
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_ENABLED` | `true` | Enable/disable Ollama AI in Pudel (app-level) |
+| Variable | Default               | Description                                                    |
+|----------|-----------------------|----------------------------------------------------------------|
+| `OLLAMA_ENABLED` | `true`                | Enable/disable Ollama AI in Pudel (app-level)                  |
 | `OLLAMA_URL` | `http://ollama:11434` | Ollama API URL (use `ollama` for Docker, `localhost` for host) |
-| `OLLAMA_MODEL` | `qwen3:8b` | Chat model name |
-| `EMBEDDING_ENABLED` | `true` | Enable semantic search |
-| `EMBEDDING_MODEL` | `qwen3-embedding:8b` | Embedding model name |
+| `OLLAMA_MODEL` | `qwen3:8b`            | Chat model name                                                |
+| `EMBEDDING_DIMENSION` | `1024`                | Embedding model's real vector dimension                        |
+| `EMBEDDING_MODEL` | `qwen3-embedding:8b`  | Embedding model name                                           |
 
 > **Note:** `OLLAMA_ENABLED=false` in `.env` disables AI features in Pudel but doesn't prevent the Ollama container from starting. Use profiles to control whether Ollama container runs.
 

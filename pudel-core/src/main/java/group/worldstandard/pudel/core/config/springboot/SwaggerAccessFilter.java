@@ -125,7 +125,8 @@ public class SwaggerAccessFilter extends OncePerRequestFilter {
         String cookieToken = extractTokenFromCookie(request);
         if (cookieToken != null) {
             Claims claims = jwtUtil.getClaimsFromToken(cookieToken);
-            if (claims != null && SWAGGER_SESSION_SUBJECT.equals(claims.getSubject())) {
+            if (claims != null && (SWAGGER_SESSION_SUBJECT.equals(claims.getSubject())
+                    || ADMIN_SESSION_SUBJECT.equals(claims.getSubject()))) {
                 log.debug("Swagger access granted via cookie for admin: {}", claims.get("discordUserId"));
                 filterChain.doFilter(request, response);
                 return;

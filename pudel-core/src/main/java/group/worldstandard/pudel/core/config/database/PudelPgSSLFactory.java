@@ -20,7 +20,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -34,9 +33,10 @@ import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Self-contained PostgreSQL SSL socket factory, wired via the {@code sslfactory=}
@@ -95,24 +95,30 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         }
     }
 
-    private static SSLContext buildSslContext(String caPath, String clientCertPath, String clientKeyPath)
-            throws Exception {
-        // Trust: CA that signs the server certificate.
-        final X509Certificate caCert = (X509Certificate) readCertificate(caPath);
+    private static SSLContext buildSslContext(String caPath, String clientCertPath, String clientKeyPath) throws Exception {
+        // Trust: Load all CA certificates (Root + Intermediates)
+        final Certificate[] caCerts = readCertificateChain(caPath);
         final KeyStore trustStore = KeyStore.getInstance("PKCS12");
         trustStore.load(null, null);
-        trustStore.setCertificateEntry("pudel-ca", caCert);
+
+        // Add each certificate in the CA chain with a unique alias
+        for (int i = 0; i < caCerts.length; i++) {
+            trustStore.setCertificateEntry("pudel-ca-" + i, caCerts[i]);
+        }
+
         final TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         tmf.init(trustStore);
         final TrustManager[] trustManagers = tmf.getTrustManagers();
 
-        // Key: client cert + private key for mTLS.
-        final X509Certificate clientCert = (X509Certificate) readCertificate(clientCertPath);
+        // Key: Load client cert chain + private key for mTLS
+        final Certificate[] clientCerts = readCertificateChain(clientCertPath);
         final PrivateKey clientKey = readPrivateKey(clientKeyPath);
         final KeyStore keyStore = KeyStore.getInstance("PKCS12");
         keyStore.load(null, null);
-        keyStore.setCertificateEntry("pudel-client", clientCert);
-        keyStore.setKeyEntry("pudel-client-key", clientKey, new char[0], new Certificate[]{clientCert});
+
+        // The key entry accepts the full certificate array as the chain
+        keyStore.setKeyEntry("pudel-client-key", clientKey, new char[0], clientCerts);
+
         final KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         kmf.init(keyStore, new char[0]);
         final KeyManager[] keyManagers = kmf.getKeyManagers();
@@ -122,21 +128,21 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         return ctx;
     }
 
-    private static Certificate readCertificate(String path) throws Exception {
+    private static Certificate[] readCertificateChain(String path) throws Exception {
         try (InputStream in = Files.newInputStream(Paths.get(path))) {
-            final byte[] der = stripPem(in.readAllBytes(), "CERTIFICATE");
-            return CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(der));
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            return factory.generateCertificates(in).toArray(new Certificate[0]);
         }
     }
 
     private static PrivateKey readPrivateKey(String path) throws Exception {
         final byte[] raw = Files.readAllBytes(Paths.get(path));
-        final byte[] der = stripPem(raw, "PRIVATE KEY", "RSA PRIVATE KEY");
+        final byte[] der = stripPem(raw);
         final PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
 
         // Ordered roughly by most common usage to optimize the loop
         String[] algorithms = {
-                "RSA", "EC", "EdDSA", "RSASSA-PSS", "XDH", "DiffieHellman", "DSA"
+                "RSA", "EC", "EdDSA", "RSASSA-PSS", "XDH", "DiffieHellman", "DSA", "HSS/LMS", "ML-DSA", "ML-KEM"
         };
 
         for (String alg : algorithms) {
@@ -148,27 +154,29 @@ public class PudelPgSSLFactory extends SSLSocketFactory {
         }
 
         throw new IllegalArgumentException("Unsupported private key algorithm in " + path
-                + " (tried RSA, EC, EdDSA, RSASSA-PSS, XDH, DiffieHellman, DSA, and variants)");
+                + " (tried RSA, EC, EdDSA, RSASSA-PSS, XDH, DiffieHellman, DSA, HSS/LMS, ML-DSA, ML-KEM)");
     }
 
     /** Strip optional PEM armour, returning the raw DER bytes. */
-    private static byte[] stripPem(byte[] data, String... labels) {
+    private static byte[] stripPem(byte[] data) {
         final String text = new String(data, StandardCharsets.US_ASCII);
+
         if (!text.contains("-----BEGIN")) {
             return data; // already DER
         }
-        for (String label : labels) {
-            final String begin = "-----BEGIN " + label + "-----";
-            final String end = "-----END " + label + "-----";
-            final int s = text.indexOf(begin);
-            final int e = text.indexOf(end);
-            if (s >= 0 && e > s) {
-                final String b64 = text.substring(s + begin.length(), e).replaceAll("\\s+", "");
-                return Base64.getDecoder().decode(b64);
-            }
+
+        final Pattern PEM_PATTERN = Pattern.compile(
+                "-----BEGIN [^-]+-----(?<payload>[^-]+)-----END [^-]+-----",
+                Pattern.DOTALL
+        );
+
+        final Matcher matcher = PEM_PATTERN.matcher(text);
+        if (matcher.find()) {
+            final String base64Payload = matcher.group("payload").replaceAll("\\s+", "");
+            return Base64.getDecoder().decode(base64Payload);
         }
-        throw new IllegalArgumentException("No supported PEM label found (expected one of: "
-                + String.join(", ", labels) + ")");
+
+        throw new IllegalArgumentException("Malformed PEM data: missing or mismatched BEGIN/END delimiters");
     }
 
     // ---- SSLSocketFactory delegation ----

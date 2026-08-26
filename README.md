@@ -59,10 +59,8 @@ Pudel acts as a **personal maid/secretary** for Discord guilds — capable of na
 pudel/
 ├── pudel-api/      # Plugin Development Kit (MIT License)
 ├── pudel-core/     # Bot core (AGPLv3 + Plugin Exception)
-├── pudel-model/    # AI/ML components (AGPLv3)
 ├── plugins/        # Plugin JARs (hot-loadable)
 ├── keys/           # RSA keys for JWT + mTLS client certs
-└── database/       # SQL migration history (reference only; schema is defined in Java)
 ```
 
 See [ARCHITECTURE.md](docs/flowchart/architecture/ARCHITECTURE.md) for detailed system design.
@@ -98,14 +96,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 \q
 ```
 
-> **No schema file to run.** Pudel defines its entire database layout in Java
-> (`SchemaManagementService`). On startup the bot reconciles the live database
-> against that declaration — creating any missing tables/columns/indexes and
-> repairing existing schemas automatically. You do **not** need to run
-> `database/init.sql` (that file was removed) or any manual migration step.
-> Global `public` tables are managed by Hibernate (`spring.jpa.hibernate.ddl-auto: update`);
-> per-guild/per-user schemas are managed by the reconciler. Just make sure the
-> `vector` extension exists for pgvector-backed embeddings.
+> **No schema file to run.** Pudel defines its entire database layout in Java (`SchemaManagementService`). On startup the bot reconciles the live database against that declaration — creating any missing tables/columns/indexes and repairing existing schemas automatically. 
+> You do **not** need to run `database/init.sql` (that file was removed) or any manual migration step. Global `public` tables are managed by Hibernate (`spring.jpa.hibernate.ddl-auto: update`);
+> per-guild/per-user schemas are managed by the reconciler. Just make sure the `vector` extension exists for pgvector-backed embeddings.
 
 ### 3. Configure
 
@@ -139,7 +132,7 @@ JWT_PUBLIC_KEY_PATH=./keys/pb.key
 ollama run qwen3:8b
 
 # Start Pudel
-java -jar pudel-core/target/pudel-core-2.3.2.jar
+java -jar pudel-core/target/pudel-core-2.4.0.jar
 ```
 
 ---
@@ -178,7 +171,7 @@ All built-in commands follow the same `@Plugin` annotation pattern as plugins.
 <dependency>
     <groupId>group.worldstandard</groupId>
     <artifactId>pudel-api</artifactId>
-    <version>2.3.2</version>
+    <version>2.4.0</version>
     <scope>provided</scope>
 </dependency>
 ```
@@ -327,7 +320,6 @@ Mount the plugins directory as a volume. When you copy a new JAR to `./plugins/`
 |--------|---------|---------|
 | `pudel-core` | AGPLv3 + Plugin Exception | Bot core |
 | `pudel-api` | MIT | Plugin Development Kit |
-| `pudel-model` | AGPLv3 | AI/ML components |
 
 ### Plugin Exception
 
@@ -350,7 +342,7 @@ Are **NOT considered derivative works** of Pudel. This allows proprietary and co
 
 ## Status
 
-**Version**: 2.3.2 (Stable)
+**Version**: 2.4.0 (Stable)
 
 **Note**: Only changes or bug fixes originating from the API qualify for a semantic version update.
 

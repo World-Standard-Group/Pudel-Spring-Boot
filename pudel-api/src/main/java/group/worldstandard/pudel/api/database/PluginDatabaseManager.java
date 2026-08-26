@@ -167,6 +167,12 @@ public interface PluginDatabaseManager {
 
     /**
      * Database statistics.
+     *
+     * @param pluginId      the identifier of the plugin the statistics belong to
+     * @param schemaName    the name of the database schema
+     * @param tableCount    the number of tables in the schema
+     * @param totalRows     the total number of rows across all tables
+     * @param schemaVersion the version of the schema definition
      */
     record DatabaseStats(
             String pluginId,

@@ -26,7 +26,7 @@ import group.worldstandard.pudel.core.service.UserDataService;
 import group.worldstandard.pudel.core.brain.analyzer.TextAnalysis;
 
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.*;
 
 /**
@@ -109,7 +109,7 @@ public class MemoryManager {
      * <p>
      * NOTE: This legacy method is kept for backward compatibility but the new
      * PassiveContextProcessor handles all passive context storage with the
-     * updated schema (message_id, attachment_urls, forwarded_content).
+     * updated schema (message_id, attachment_urls, forwarded_message_id).
      */
     @Deprecated
     public void storePassiveContext(String message, long userId, long channelId,
@@ -150,7 +150,7 @@ public class MemoryManager {
                     analysis.intent(),
                     analysis.sentiment(),
                     entitiesJson,
-                    Timestamp.valueOf(LocalDateTime.now())
+                    Timestamp.from(Instant.now())
             );
 
             logger.debug("Stored passive context for {} {}", isGuild ? "guild" : "user", targetId);
@@ -326,7 +326,7 @@ public class MemoryManager {
                     "sentiment VARCHAR(20), " +
                     "entities JSONB, " +
                     "attachment_urls TEXT[], " +
-                    "forwarded_content JSONB, " +
+                    "forwarded_message_id BIGINT, " +
                     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                     ")";
             jdbcTemplate.execute(sql);
@@ -375,7 +375,7 @@ public class MemoryManager {
                         (String) row.get("type"),
                         (String) row.get("content"),
                         0.5,
-                        ((Timestamp) row.get("created_at")).toLocalDateTime()
+                        ((Timestamp) row.get("created_at")).toInstant()
                 ));
             }
         } catch (Exception e) {
@@ -410,7 +410,7 @@ public class MemoryManager {
                         "dialogue",
                         content + " -> " + row.get("bot_response"),
                         relevance,
-                        ((Timestamp) row.get("created_at")).toLocalDateTime()
+                        ((Timestamp) row.get("created_at")).toInstant()
                 ));
             }
         } catch (Exception e) {
@@ -445,7 +445,7 @@ public class MemoryManager {
                         "memory",
                         content,
                         relevance,
-                        ((Timestamp) row.get("created_at")).toLocalDateTime()
+                        ((Timestamp) row.get("created_at")).toInstant()
                 ));
             }
         } catch (Exception e) {
@@ -483,7 +483,7 @@ public class MemoryManager {
                         "context",
                         content,
                         relevance,
-                        ((Timestamp) row.get("created_at")).toLocalDateTime()
+                        ((Timestamp) row.get("created_at")).toInstant()
                 ));
             }
         } catch (Exception e) {
@@ -553,7 +553,7 @@ public class MemoryManager {
             String type,        // "dialogue", "memory", "context"
             String content,
             double relevance,
-            LocalDateTime timestamp
+            Instant timestamp
     ) {}
 
     /**

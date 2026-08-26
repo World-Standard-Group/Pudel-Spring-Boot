@@ -59,6 +59,9 @@ public interface McpToolRegistry {
 
     /**
      * Get a tool definition by name.
+     *
+     * @param toolName the unique name of the tool to retrieve
+     * @return an {@link Optional} containing the tool definition if registered, otherwise empty
      */
     Optional<McpToolDefinition> getTool(String toolName);
 
@@ -69,16 +72,25 @@ public interface McpToolRegistry {
 
     /**
      * Get all tools registered by a specific plugin.
+     *
+     * @param pluginId the identifier of the plugin whose tools should be returned
+     * @return the collection of tool definitions owned by the plugin
      */
     Collection<McpToolDefinition> getToolsByPlugin(String pluginId);
 
     /**
      * Search tools by keyword (matches name, description, or keywords).
+     *
+     * @param keyword the search term to match against tool metadata
+     * @return the collection of tool definitions matching the keyword
      */
     Collection<McpToolDefinition> searchTools(String keyword);
 
     /**
      * Check if a tool is registered.
+     *
+     * @param toolName the name of the tool to check
+     * @return true if a tool with the given name is registered
      */
     boolean hasTool(String toolName);
 

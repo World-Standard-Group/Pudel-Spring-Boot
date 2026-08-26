@@ -38,14 +38,16 @@ public class OllamaClientConfig {
     public OllamaClient ollamaClient(PudelBrainConfig brainConfig) {
         PudelBrainConfig.Ollama ollamaConfig = brainConfig.getOllama();
 
-        logger.info("Creating OllamaClient: baseUrl={}, model={}, timeout={}s",
+        logger.info("Creating OllamaClient: baseUrl={}, model={}, embeddingModel={}, timeout={}s",
                 ollamaConfig.getBaseUrl(),
                 ollamaConfig.getModel(),
+                ollamaConfig.getEmbeddingModel(),
                 ollamaConfig.getTimeoutSeconds());
 
         return new OllamaClient(
                 ollamaConfig.getBaseUrl(),
                 ollamaConfig.getModel(),
+                ollamaConfig.getEmbeddingModel(),
                 ollamaConfig.getTemperature(),
                 ollamaConfig.getMaxTokens(),
                 ollamaConfig.getTimeoutSeconds()

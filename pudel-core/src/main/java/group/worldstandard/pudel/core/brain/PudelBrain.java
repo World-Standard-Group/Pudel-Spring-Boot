@@ -42,6 +42,8 @@ import java.net.URI;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * PudelBrain v2 - The reworked central intelligence component.
@@ -927,8 +929,8 @@ public class PudelBrain {
 
         // Extract simple entities (mentions, channels, URLs)
         Map<String, List<String>> entities = new HashMap<>();
-        java.util.regex.Pattern mentionPattern = java.util.regex.Pattern.compile("<@!?(\\d+)>");
-        java.util.regex.Matcher matcher = mentionPattern.matcher(text);
+        Pattern mentionPattern = Pattern.compile("<@!?(\\d+)>");
+        Matcher matcher = mentionPattern.matcher(text);
         List<String> mentions = new ArrayList<>();
         while (matcher.find()) {
             mentions.add(matcher.group(1));

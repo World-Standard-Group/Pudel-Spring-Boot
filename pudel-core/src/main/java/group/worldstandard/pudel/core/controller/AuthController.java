@@ -113,6 +113,57 @@ public class AuthController {
     }
 
     /**
+     * Refresh an existing DPoP-bound session without a full Discord re-login.
+     * POST /api/auth/refresh
+     * <p>
+     * The client sends its current (still-valid) DPoP-bound access token in the
+     * Authorization: DPoP <token> header, plus a fresh DPoP proof in the "DPoP" header
+     * and the key id in X-DPoP-Key-Id. The server re-validates the binding, refreshes
+     * the Discord access token server-side using the stored refresh token, and returns a new
+     * DPoP-bound access token bound to the SAME key thumbprint. This is the RFC 9449
+     * BFF refresh flow that prevents the "key mismatch 401 → forced re-login" on restart.
+     */
+    @Operation(summary = "Refresh DPoP-bound session",
+            description = "Re-issue a DPoP-bound token bound to the same key, refreshing the Discord token server-side. No full re-login required.")
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = DPOP_HEADER, required = false) String dpopProof,
+            @RequestHeader(value = DPOP_KEY_ID_HEADER, required = false) String dpopKeyId,
+            HttpServletRequest httpRequest) {
+
+        if (authHeader == null || dpopProof == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Missing Authorization or DPoP proof for refresh"));
+        }
+
+        String token = null;
+        if (authHeader.startsWith("DPoP ")) {
+            token = authHeader.substring(5);
+        } else if (authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        }
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Invalid Authorization scheme for refresh"));
+        }
+
+        String httpUri = httpRequest.getRequestURL().toString();
+        String httpMethod = httpRequest.getMethod();
+
+        OAuthCallbackResponse response = authService.refresh(
+                dpopProof, httpMethod, httpUri, dpopKeyId, token);
+
+        if (response == null) {
+            // Refresh impossible (token revoked, key desync, refresh token invalid) → force re-login.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Session cannot be refreshed; please log in again"));
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Logout endpoint - revokes token binding for DPoP tokens.
      * POST /api/auth/logout
      */

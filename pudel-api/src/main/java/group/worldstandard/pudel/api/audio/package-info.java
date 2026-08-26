@@ -11,11 +11,11 @@
  *
  * <h2>Key Components:</h2>
  * <ul>
- *   <li>{@link group.worldstandard.pudel.api.audio.VoiceManager} - Main interface for voice connection management</li>
  *   <li>{@link group.worldstandard.pudel.api.audio.AudioProvider} - Interface for providing audio data to play</li>
  *   <li>{@link group.worldstandard.pudel.api.audio.AudioReceiver} - Interface for receiving audio data</li>
  *   <li>{@link group.worldstandard.pudel.api.audio.DAVEProvider} - Interface for DAVE encryption implementation</li>
  *   <li>{@link group.worldstandard.pudel.api.audio.VoiceConnectionStatus} - Enum of connection states</li>
+ *   <li>{@link group.worldstandard.pudel.api.audio.VoiceManager} - Main interface for voice connection management</li>
  * </ul>
  *
  * <h2>Audio Playback Example:</h2>

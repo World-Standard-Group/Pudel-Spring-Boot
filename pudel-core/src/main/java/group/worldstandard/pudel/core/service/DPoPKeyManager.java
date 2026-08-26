@@ -32,7 +32,8 @@ import java.security.*;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -101,7 +102,7 @@ public class DPoPKeyManager {
                 // Verify the key belongs to this user
                 if (key.getUserId().equals(userId)) {
                     // Update last used timestamp
-                    dpopKeyRepository.updateLastUsed(keyId, LocalDateTime.now());
+                    dpopKeyRepository.updateLastUsed(keyId, Instant.now());
                     log.debug("Retrieved existing DPoP key for user: {}, keyId: {}", userId, keyId);
                     return new DPoPKeyInfo(keyId, parseJwk(key.getPublicKeyJwk()));
                 } else {
@@ -155,7 +156,7 @@ public class DPoPKeyManager {
             String privateKeyJwkJson = objectMapper.writeValueAsString(privateKeyJwk);
 
             // Calculate expiration
-            LocalDateTime expiresAt = LocalDateTime.now().plusHours(keyExpirationHours);
+            Instant expiresAt = Instant.now().plus(keyExpirationHours, ChronoUnit.HOURS);
 
             // Store in database
             DPoPKey dpopKey = new DPoPKey();
@@ -193,7 +194,7 @@ public class DPoPKeyManager {
             throw new RuntimeException("DPoP key is no longer active: " + keyId);
         }
 
-        if (dpopKey.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (dpopKey.getExpiresAt().isBefore(Instant.now())) {
             throw new RuntimeException("DPoP key has expired: " + keyId);
         }
 
@@ -216,7 +217,7 @@ public class DPoPKeyManager {
                 throw new RuntimeException("DPoP key is no longer active: " + keyId);
             }
 
-            if (dpopKey.getExpiresAt().isBefore(LocalDateTime.now())) {
+            if (dpopKey.getExpiresAt().isBefore(Instant.now())) {
                 throw new RuntimeException("DPoP key has expired: " + keyId);
             }
 
@@ -225,7 +226,7 @@ public class DPoPKeyManager {
             KeyPair keyPair = reconstructKeyPair(privateKeyJwk);
 
             // Update last used timestamp
-            dpopKeyRepository.updateLastUsed(keyId, LocalDateTime.now());
+            dpopKeyRepository.updateLastUsed(keyId, Instant.now());
 
             // Add typ header
             Map<String, Object> headers = new HashMap<>();

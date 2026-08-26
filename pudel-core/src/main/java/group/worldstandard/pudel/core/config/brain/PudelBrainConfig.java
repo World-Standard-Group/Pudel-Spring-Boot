@@ -117,6 +117,7 @@ public class PudelBrainConfig {
     public static class Ollama {
         private String baseUrl = "http://localhost:11434";
         private String model = "llama3.2";
+        private String embeddingModel; // null => use `model` for embeddings
         private int timeoutSeconds = 120;
         private double temperature = 0.7;
         private int maxTokens = 2048;
@@ -125,6 +126,8 @@ public class PudelBrainConfig {
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getModel() { return model; }
         public void setModel(String model) { this.model = model; }
+        public String getEmbeddingModel() { return embeddingModel != null && !embeddingModel.isBlank() ? embeddingModel : model; }
+        public void setEmbeddingModel(String embeddingModel) { this.embeddingModel = embeddingModel; }
         public int getTimeoutSeconds() { return timeoutSeconds; }
         public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
         public double getTemperature() { return temperature; }

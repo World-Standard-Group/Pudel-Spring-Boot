@@ -408,6 +408,40 @@ public class PluginAnnotationProcessor {
         return data;
     }
 
+    private CommandData buildContextMenuCommandData(ContextMenu annotation, Command.Type type) {
+        CommandData data;
+        String actualName = annotation.baseName().trim() + " > " + annotation.funcName().trim();
+
+        if(actualName.length() > 32){
+            actualName = actualName.substring(0, 30) + "...";
+        }
+
+        if (type == Command.Type.USER) {
+            data = Commands.user(actualName);
+        } else {
+            data = Commands.message(actualName);
+        }
+
+        // Add default member permissions (controls visibility/usage)
+        if (annotation.permissions().length > 0) {
+            data.setDefaultPermissions(DefaultMemberPermissions.enabledFor(annotation.permissions()));
+        }
+
+        data.setNSFW(annotation.nsfw());
+
+        // Add IntegrationType
+        if (annotation.integrationTo().length > 0) {
+            data.setIntegrationTypes(annotation.integrationTo());
+        }
+
+        // Add InteractionContextType
+        if (annotation.integrationContext().length > 0) {
+            data.setContexts(annotation.integrationContext());
+        }
+
+        return data;
+    }
+
     private OptionData buildOptionData(CommandOption opt) {
         OptionType type = opt.type();
 
@@ -564,7 +598,7 @@ public class PluginAnnotationProcessor {
                             try {
                                 finalMethod.invoke(instance, event);
                             } catch (Exception e) {
-                                Throwable cause = (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
+                                Throwable cause = (e instanceof InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
                                 logger.error("[{}] Error in button handler: {}", pluginId, cause.getMessage(), cause);
                                 if (event.isAcknowledged()) {
                                     event.getHook().sendMessage("❌ An error occurred.").setEphemeral(true).queue();
@@ -621,7 +655,7 @@ public class PluginAnnotationProcessor {
                             try {
                                 finalMethod.invoke(instance, event);
                             } catch (Exception e) {
-                                Throwable cause = (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
+                                Throwable cause = (e instanceof InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
                                 logger.error("[{}] Error in modal handler: {}", pluginId, cause.getMessage(), cause);
                                 if (event.isAcknowledged()) {
                                     event.getHook().sendMessage("❌ An error occurred.").setEphemeral(true).queue();
@@ -754,11 +788,7 @@ public class PluginAnnotationProcessor {
             ContextMenuHandler handler = new ContextMenuHandler() {
                 @Override
                 public CommandData getCommandData() {
-                    if (expectedType == Command.Type.USER) {
-                        return Commands.user(annotation.name());
-                    } else {
-                        return Commands.message(annotation.name());
-                    }
+                    return buildContextMenuCommandData(annotation, expectedType);
                 }
 
                 @Override
@@ -787,7 +817,7 @@ public class PluginAnnotationProcessor {
                     try {
                         finalMethod.invoke(instance, event);
                     } catch (Exception e) {
-                        Throwable cause = (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
+                        Throwable cause = (e instanceof InvocationTargetException && e.getCause() != null) ? e.getCause() : e;
                         logger.error("[{}] Error in message context menu handler: {}", pluginId, cause.getMessage(), cause);
                         if (!event.isAcknowledged()) {
                             event.reply("❌ An error occurred.").setEphemeral(true).queue();
@@ -809,7 +839,7 @@ public class PluginAnnotationProcessor {
             // Register
             if (interactionManager.registerContextMenu(pluginId, handler)) {
                 pluginContextMenus.computeIfAbsent(pluginId, _ -> new HashSet<>())
-                        .add(annotation.name());
+                        .add(handler.getCommandData().getName());
                 count++;
             }
         }
@@ -841,7 +871,7 @@ public class PluginAnnotationProcessor {
                 }
             } catch (Exception e) {
                 Throwable cause = e;
-                if (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null) {
+                if (e instanceof InvocationTargetException && e.getCause() != null) {
                     cause = e.getCause();
                 }
                 logger.error("Error invoking @{} method {}: {}",
@@ -886,7 +916,7 @@ public class PluginAnnotationProcessor {
                 method.invoke(instance, event);
             } catch (Exception e) {
                 LoggerFactory.getLogger(AnnotatedSlashCommandHandler.class)
-                        .error("Error handling slash command /{}: {}", commandData.getName(), e.getMessage(), e);
+                        .error("Error handling slash command {}: {}", commandData.getName(), e.getMessage(), e);
                 if (!event.isAcknowledged()) {
                     event.reply("❌ An error occurred executing this command.").setEphemeral(true).queue();
                 }
