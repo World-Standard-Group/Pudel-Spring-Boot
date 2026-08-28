@@ -644,6 +644,89 @@ public class InteractionManagerImpl implements InteractionManager {
         return null;
     }
 
+    // =====================================================
+    // Plugin Owner Resolution (for event source scoping)
+    // =====================================================
+
+    /**
+     * Resolves the plugin that owns a slash command handler.
+     *
+     * @param commandName the slash command name
+     * @return the plugin ID, or null if not found or built-in
+     */
+    public String getPluginForSlashCommand(String commandName) {
+        return getPluginIdForCommand("slash:" + commandName);
+    }
+
+    /**
+     * Resolves the plugin that owns a context menu handler.
+     *
+     * @param commandName the context menu command name
+     * @return the plugin ID, or null if not found or built-in
+     */
+    public String getPluginForContextMenu(String commandName) {
+        return getPluginIdForCommand("context:" + commandName);
+    }
+
+    /**
+     * Resolves the plugin that owns a button handler by matching the button ID prefix.
+     *
+     * @param buttonId the full button component ID
+     * @return the plugin ID, or null if not found
+     */
+    public String getPluginForButton(String buttonId) {
+        for (Map.Entry<String, ButtonHandler> entry : buttonHandlers.entrySet()) {
+            if (buttonId.startsWith(entry.getKey())) {
+                String prefix = entry.getKey();
+                return getPluginIdForCommand("button:" + prefix);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the plugin that owns a select menu handler by matching the menu ID prefix.
+     *
+     * @param selectMenuId the full select menu component ID
+     * @return the plugin ID, or null if not found
+     */
+    public String getPluginForSelectMenu(String selectMenuId) {
+        for (Map.Entry<String, SelectMenuHandler> entry : selectMenuHandlers.entrySet()) {
+            if (selectMenuId.startsWith(entry.getKey())) {
+                String prefix = entry.getKey();
+                return getPluginIdForCommand("select:" + prefix);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the plugin that owns a modal handler by matching the modal ID prefix.
+     *
+     * @param modalId the full modal ID
+     * @return the plugin ID, or null if not found
+     */
+    public String getPluginForModal(String modalId) {
+        for (Map.Entry<String, ModalHandler> entry : modalHandlers.entrySet()) {
+            if (modalId.startsWith(entry.getKey())) {
+                String prefix = entry.getKey();
+                return getPluginIdForCommand("modal:" + prefix);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the plugin that owns an autocomplete handler.
+     *
+     * @param commandName the command name
+     * @param optionName  the autocomplete option name
+     * @return the plugin ID, or null if not found
+     */
+    public String getPluginForAutoComplete(String commandName, String optionName) {
+        return getPluginIdForCommand("autocomplete:" + commandName + ":" + optionName);
+    }
+
     /**
      * Get the set of plugin names disabled for a given guild.
      */

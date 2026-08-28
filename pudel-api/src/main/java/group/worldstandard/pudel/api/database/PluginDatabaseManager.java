@@ -37,15 +37,19 @@ import java.util.List;
  *     public void onEnable(PluginContext context) {
  *         PluginDatabaseManager db = context.getDatabaseManager();
  *
- *         // Define your table schema
+ *         // Option 1: Automatic migration from entity classes (recommended)
+ *         db.autoMigrate(UserSetting.class, GuildConfig.class);
+ *
+ *         // Option 2: Create/update individual tables
+ *         db.createOrUpdateTable(UserSetting.class);
+ *
+ *         // Option 3: Manual schema definition (legacy)
  *         TableSchema schema = TableSchema.builder("my_data")
  *             .column("name", ColumnType.STRING, 255, false)
  *             .column("count", ColumnType.INTEGER, false)
  *             .column("active", ColumnType.BOOLEAN, false)
- *             .column("data", ColumnType.TEXT, true)  // nullable
+ *             .column("data", ColumnType.TEXT, true)
  *             .build();
- *
- *         // Create the table (idempotent - safe to call every startup)
  *         db.createTable(schema);
  *
  *         // Get a repository for CRUD operations
@@ -159,14 +163,52 @@ public interface PluginDatabaseManager {
     boolean migrate(int targetVersion, PluginMigration migration);
 
     /**
-     * Get database statistics for this plugin.
-     *
-     * @return database stats
-     */
-    DatabaseStats getStats();
+         * Get database statistics for this plugin.
+         *
+         * @return database stats
+         */
+        DatabaseStats getStats();
 
-    /**
-     * Database statistics.
+        /**
+         * Automatically migrate tables to match the given entity classes.
+         * <p>
+         * This method compares the current database schema with the schema derived
+         * from the entity classes and applies necessary changes (add columns, create indexes, etc.).
+         * It does not drop columns or tables - only additive changes for safety.
+         * <p>
+         * Example:
+         * <pre>
+         * {@code
+         * dbManager.autoMigrate(UserSetting.class, GuildConfig.class);
+         * }
+         * </pre>
+         *
+         * @param entityClasses the entity classes to migrate to
+         * @return true if any migrations were applied, false if already up to date
+         */
+        boolean autoMigrate(Class<?>... entityClasses);
+
+        /**
+         * Create or update a table from an entity class.
+         * <p>
+         * This is a convenience method that creates the table if it doesn't exist,
+         * or adds missing columns/indexes if it does exist.
+         *
+         * @param entityClass the entity class annotated with @Entity
+         * @return true if table was created or modified, false if already up to date
+         */
+        <T> boolean createOrUpdateTable(Class<T> entityClass);
+
+        /**
+         * Get the current table schema for a table (for comparison/debugging).
+         *
+         * @param tableName the table name (without prefix)
+         * @return current table schema, or null if table doesn't exist
+         */
+        TableSchema getTableSchema(String tableName);
+
+        /**
+         * Database statistics.
      *
      * @param pluginId      the identifier of the plugin the statistics belong to
      * @param schemaName    the name of the database schema

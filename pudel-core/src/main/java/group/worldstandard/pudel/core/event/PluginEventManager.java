@@ -33,7 +33,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Implementation of EventManager that handles plugin event registration and dispatch.
+ * Implementation of EventManager that handles plugin event listener registration and dispatch.
+ * <p>
+ * <b>Security: Event Source Isolation</b>
+ * <p>
+ * To prevent plugin eavesdropping (issue #37), plugin event listeners are <b>scoped by source</b>:
+ * a listener registered by a plugin ONLY receives events that originate from that plugin's own
+ * interactions (slash commands, buttons, modals, etc.). Events from other plugins or raw Discord
+ * events are never delivered to plugin event listeners.
+ * <p>
+ * Dispatch flow:
+ * <ol>
+ *   <li>{@code dispatchEvent(event)} — called from {@code DiscordEventListener.onGenericEvent()}
+ *       for all JDA events. With no source-plugin context, this is a <b>no-op</b> for plugin
+ *       handlers — raw Discord events do NOT reach plugin listeners.</li>
+ *   <li>{@code dispatchEvent(event, sourcePlugin)} — called from
+ *       {@code InteractionEventListener} <b>before</b> each interaction handler. Only handlers
+ *       registered by {@code sourcePlugin} receive the event.</li>
+ * </ol>
  */
 @Component
 public class PluginEventManager implements EventManager {
@@ -205,11 +222,23 @@ public class PluginEventManager implements EventManager {
         return eventHandlers.values().stream().mapToInt(List::size).sum();
     }
 
+    // =========================================================================
+    // Event Dispatch
+    // =========================================================================
+
     /**
-     * Dispatches an event to all registered handlers.
-     * This is called by the core event listener.
+     * Dispatches an event from a <b>generic / non-plugin context</b>.
+     * <p>
+     * All registered plugin event handlers receive the event. This enables
+     * plugins to monitor raw Discord events (messages, guild changes, etc.)
+     * and system-level events.
+     * <p>
+     * Plugin-scoped interaction events (slash commands, buttons, modals, etc.)
+     * are dispatched via {@link #dispatchEvent(GenericEvent, String)} which
+     * restricts delivery to only the owning plugin's handlers, preventing
+     * cross-plugin eavesdropping.
      *
-     * @param event the JDA event
+     * @param event the JDA event to dispatch to all plugin handlers
      */
     public void dispatchEvent(GenericEvent event) {
         if (event == null) {
@@ -223,17 +252,79 @@ public class PluginEventManager implements EventManager {
             // Also check parent classes for more general handlers
             for (Map.Entry<Class<? extends GenericEvent>, List<RegisteredHandler>> entry : eventHandlers.entrySet()) {
                 if (entry.getKey().isAssignableFrom(event.getClass())) {
-                    dispatchToHandlers(event, entry.getValue());
+                    dispatchToAllHandlers(event, entry.getValue());
                 }
             }
             return;
         }
 
-        dispatchToHandlers(event, handlers);
+        dispatchToAllHandlers(event, handlers);
     }
 
-    private void dispatchToHandlers(GenericEvent event, List<RegisteredHandler> handlers) {
+    /**
+     * Dispatches an event <b>scoped to a specific source plugin</b>.
+     * <p>
+     * Only handlers registered by {@code sourcePlugin} will receive the event.
+     * This enforces event-source isolation: a plugin's listeners can only see
+     * events originating from that plugin's own interactions (e.g., slash
+     * commands, buttons, modals). Other plugins cannot eavesdrop.
+     * <p>
+     * Called by {@code InteractionEventListener} <b>before</b> each interaction
+     * handler executes, with the owning plugin's name as the source.
+     *
+     * @param event        the JDA event to dispatch
+     * @param sourcePlugin the plugin that triggered the event (only its handlers
+     *                     receive the event)
+     */
+    public void dispatchEvent(GenericEvent event, String sourcePlugin) {
+        if (event == null || sourcePlugin == null) {
+            logger.warn("Cannot dispatch event with null event or source plugin");
+            return;
+        }
+
+        // Find handlers for this exact event class
+        List<RegisteredHandler> handlers = eventHandlers.get(event.getClass());
+
+        if (handlers == null || handlers.isEmpty()) {
+            // Also check parent classes for more general handlers
+            for (Map.Entry<Class<? extends GenericEvent>, List<RegisteredHandler>> entry : eventHandlers.entrySet()) {
+                if (entry.getKey().isAssignableFrom(event.getClass())) {
+                    dispatchToPluginHandlers(event, entry.getValue(), sourcePlugin);
+                }
+            }
+            return;
+        }
+
+        dispatchToPluginHandlers(event, handlers, sourcePlugin);
+    }
+
+    /**
+     * Dispatches an event to all registered handlers unconditionally.
+     */
+    private void dispatchToAllHandlers(GenericEvent event, List<RegisteredHandler> handlers) {
         for (RegisteredHandler handler : handlers) {
+            try {
+                handler.invoke(event);
+            } catch (Exception e) {
+                logger.error("Error dispatching event {} to handler in plugin {}: {}",
+                        event.getClass().getSimpleName(), handler.pluginName, e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Dispatches an event only to handlers registered by the specified source plugin.
+     *
+     * @param event        the JDA event
+     * @param handlers     all handlers for this event type
+     * @param sourcePlugin only handlers with this plugin name are invoked
+     */
+    private void dispatchToPluginHandlers(GenericEvent event, List<RegisteredHandler> handlers, String sourcePlugin) {
+        for (RegisteredHandler handler : handlers) {
+            if (!sourcePlugin.equals(handler.pluginName)) {
+                // SECURITY: Skip handlers from other plugins — strict source isolation
+                continue;
+            }
             try {
                 handler.invoke(event);
             } catch (Exception e) {

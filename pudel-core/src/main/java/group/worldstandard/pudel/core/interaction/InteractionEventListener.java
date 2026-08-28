@@ -16,6 +16,7 @@ package group.worldstandard.pudel.core.interaction;
 
 import group.worldstandard.pudel.api.interaction.*;
 import group.worldstandard.pudel.core.command.CommandMetadataRegistry;
+import group.worldstandard.pudel.core.event.PluginEventManager;
 import group.worldstandard.pudel.core.service.CommandExecutionService;
 import group.worldstandard.pudel.core.service.GuildSettingsService;
 import net.dv8tion.jda.api.entities.Guild;
@@ -47,15 +48,18 @@ public class InteractionEventListener extends ListenerAdapter {
     private final CommandExecutionService commandExecutionService;
     private final GuildSettingsService guildSettingsService;
     private final CommandMetadataRegistry commandMetadataRegistry;
+    private final PluginEventManager pluginEventManager;
 
     public InteractionEventListener(InteractionManagerImpl interactionManager,
                                     CommandExecutionService commandExecutionService,
                                     GuildSettingsService guildSettingsService,
-                                    CommandMetadataRegistry commandMetadataRegistry) {
+                                    CommandMetadataRegistry commandMetadataRegistry,
+                                    PluginEventManager pluginEventManager) {
         this.interactionManager = interactionManager;
         this.commandExecutionService = commandExecutionService;
         this.guildSettingsService = guildSettingsService;
         this.commandMetadataRegistry = commandMetadataRegistry;
+        this.pluginEventManager = pluginEventManager;
     }
 
     // =====================================================
@@ -95,6 +99,14 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling slash command: /{} by {}", commandName, event.getUser().getName());
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            // This prevents other plugins from eavesdropping on this interaction event.
+            String sourcePlugin = interactionManager.getPluginForSlashCommand(commandName);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handle(event);
 
             // Log successful command execution to the guild's log channel
@@ -226,6 +238,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling user context menu: {} on {}", commandName, event.getTarget().getName());
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForContextMenu(commandName);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handleUserContext(event);
 
             // Log successful context menu usage
@@ -285,6 +304,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling message context menu: {} on message {}", commandName, event.getTarget().getId());
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForContextMenu(commandName);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handleMessageContext(event);
 
             // Log successful context menu usage
@@ -345,6 +371,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling button interaction: {}", buttonId);
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForButton(buttonId);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handle(event);
         } catch (Exception e) {
             logger.error("Error handling button {}: {}", buttonId, e.getMessage(), e);
@@ -372,6 +405,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling string select interaction: {}", menuId);
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForSelectMenu(menuId);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handleStringSelect(event);
         } catch (Exception e) {
             logger.error("Error handling string select {}: {}", menuId, e.getMessage(), e);
@@ -395,6 +435,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling entity select interaction: {}", menuId);
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForSelectMenu(menuId);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handleEntitySelect(event);
         } catch (Exception e) {
             logger.error("Error handling entity select {}: {}", menuId, e.getMessage(), e);
@@ -422,6 +469,13 @@ public class InteractionEventListener extends ListenerAdapter {
 
         try {
             logger.debug("Handling modal submission: {}", modalId);
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForModal(modalId);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handle(event);
         } catch (Exception e) {
             logger.error("Error handling modal {}: {}", modalId, e.getMessage(), e);
@@ -452,6 +506,13 @@ public class InteractionEventListener extends ListenerAdapter {
         try {
             logger.debug("Handling autocomplete: {}.{} = '{}'",
                     commandName, optionName, event.getFocusedOption().getValue());
+
+            // SECURITY: Dispatch event scoped to the owning plugin's listeners only.
+            String sourcePlugin = interactionManager.getPluginForAutoComplete(commandName, optionName);
+            if (sourcePlugin != null) {
+                pluginEventManager.dispatchEvent(event, sourcePlugin);
+            }
+
             handler.handle(event);
         } catch (Exception e) {
             logger.error("Error handling autocomplete {}.{}: {}", commandName, optionName, e.getMessage(), e);

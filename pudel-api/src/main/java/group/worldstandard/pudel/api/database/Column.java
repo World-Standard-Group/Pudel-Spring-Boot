@@ -27,7 +27,8 @@ import java.lang.annotation.Target;
  * Annotation for customizing field-to-column mapping.
  * <p>
  * By default, field names are converted to snake_case.
- * Use this annotation to specify a custom column name or mark a field as transient.
+ * Use this annotation to specify a custom column name, mark a field as transient,
+ * control nullability, default values, and indexing.
  * <p>
  * Example:
  * <pre>
@@ -35,8 +36,17 @@ import java.lang.annotation.Target;
  * public class UserData {
  *     private Long id;
  *
- *     @Column(name = "discord_user_id")
+ *     @Column(name = "discord_user_id", nullable = false)
  *     private Long userId;
+ *
+ *     @Column(defaultValue = "true")
+ *     private Boolean enabled;
+ *
+ *     @Column(unique = true)
+ *     private String email;
+ *
+ *     @Column(index = true)
+ *     private String username;
  *
  *     @Column(ignore = true)
  *     private transient String cachedValue;  // Not persisted
@@ -62,4 +72,37 @@ public @interface Column {
      * @return true to ignore this field
      */
     boolean ignore() default false;
+
+    /**
+     * Whether the column allows NULL values.
+     * <p>
+     * If not specified, nullability is inferred from the field type:
+     * primitive types are non-nullable, wrapper types are nullable.
+     *
+     * @return true if nullable, false if not nullable, default is inferred
+     */
+    boolean nullable() default true;
+
+    /**
+     * Default value for the column (SQL expression).
+     * <p>
+     * Example: "true", "0", "'default_text'", "CURRENT_TIMESTAMP"
+     *
+     * @return the default value expression, or empty string for none
+     */
+    String defaultValue() default "";
+
+    /**
+     * Whether to create a unique index on this column.
+     *
+     * @return true to create a unique index
+     */
+    boolean unique() default false;
+
+    /**
+     * Whether to create a regular index on this column.
+     *
+     * @return true to create an index
+     */
+    boolean index() default false;
 }

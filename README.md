@@ -46,7 +46,7 @@ Pudel acts as a **personal maid/secretary** for Discord guilds — capable of na
 
 ### 🛡️ Enterprise Features
 - **Per-guild PostgreSQL schemas** for data isolation
-- **Plugin database access** — Isolated storage per plugin
+- **Plugin database access** — Isolated storage per plugin with **auto-migration from entity classes**
 - **RSA JWT authentication** for secure API access
 - **REST API** for external integrations
 - **Docker-ready** deployment with volume support for plugins
@@ -270,6 +270,51 @@ public class MyPlugin {
     public void hello(SlashCommandInteractionEvent event) {
         event.reply("Hello!").queue();
     }
+}
+```
+
+### Plugin Database Auto-Migration (NEW in v2.4.0)
+
+Plugins no longer need manual schema definitions or migrations. Define your data model with `@Entity` and `@Column` annotations, and call `db.autoMigrate()`:
+
+```java
+@Entity
+public class UserSetting {
+    private Long id;
+    
+    @Column(name = "discord_user_id", nullable = false)
+    private Long userId;
+    
+    private String settingName;
+    private String settingValue;
+    
+    @Column(defaultValue = "true")
+    private Boolean enabled;
+    
+    @Column(unique = true)
+    private String email;
+    
+    @Column(index = true)
+    private String username;
+    
+    @Column(ignore = true)
+    private transient String cache;  // Not persisted
+    
+    // getters and setters...
+}
+
+@OnEnable
+public void onEnable(PluginContext ctx) {
+    PluginDatabaseManager db = ctx.getDatabaseManager();
+    
+    // One-liner: auto-create/update all tables from entities
+    db.autoMigrate(UserSetting.class, GuildConfig.class, UserProfile.class);
+    
+    // Or individual table control
+    db.createOrUpdateTable(UserSetting.class);
+    
+    // Get repository for CRUD
+    PluginRepository<UserSetting> repo = db.getRepository("user_setting", UserSetting.class);
 }
 ```
 

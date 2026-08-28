@@ -567,6 +567,59 @@ keytool -exportcert -alias admin -keystore admin.jks -rfc -file public.pem
 
 ---
 
+## ⚠️ Plugin Security — Malicious Plugin Injection Warning
+
+Self-hosted Pudel instances allow uploading custom plugin JARs via the Admin Portal. **This is a deliberate design choice for extensibility, but it carries inherent risk:**
+
+### The Risk
+
+A malicious plugin JAR uploaded to your instance:
+- **Has full access to the JVM** — it runs in the same process as Pudel core
+- **Can intercept raw Discord events** — `MessageReceivedEvent`, `GuildMemberJoinEvent`, etc. — because the JDA event bus delivers events to all registered listeners by design. Our architecture cannot trace a plugin's listener registration back to a specific "plugin request" from JDA's standard event dispatch.
+- **Can read/modify any in-memory state** — other plugins' data, database connections, config, etc.
+- **Can execute arbitrary code** — file I/O, network calls, process execution, etc.
+
+### Our Mitigation (Best Effort)
+
+We **do** protect against **cross-plugin eavesdropping on interactions** (slash commands, buttons, modals, autocomplete, context menus):
+
+| Event Type | Protected from cross-plugin interception? |
+|------------|-------------------------------------------|
+| Slash commands | ✅ Yes — only the owning plugin receives the interaction event |
+| Buttons | ✅ Yes |
+| Select menus | ✅ Yes |
+| Modals | ✅ Yes |
+| Autocomplete | ✅ Yes |
+| Context menus | ✅ Yes |
+
+This is enforced by `PluginEventManager.dispatchEvent(event, sourcePlugin)` which scopes interaction events to the plugin that registered the handler. **A malicious plugin cannot steal another plugin's slash command events or button clicks.**
+
+### What We Cannot Protect Against (Architectural Limitation)
+
+| Event Type | Protected? | Why |
+|------------|------------|-----|
+| Raw Discord events (`MessageReceived`, `GuildJoin`, reactions, voice state, etc.) | ❌ No | JDA delivers these to **all** registered `ListenerAdapter` instances. The event has no "source plugin" metadata — it originates from Discord, not from a plugin interaction. |
+| System-level events (JVM shutdown, scheduler ticks, etc.) | ❌ No | Same reason — no plugin ownership concept exists for these. |
+| In-memory data / database access | ❌ No | Plugins share the same JVM and database connection pool. |
+
+### Responsibility Model
+
+> **Self-hosted operators bear full responsibility for vetting every plugin JAR they upload.**
+
+- Only install plugins from trusted sources (official Pudel plugins, your own code, audited third-party JARs)
+- Never upload a JAR you cannot inspect or do not trust
+- Treat plugin uploads with the same caution as installing a system package or Docker image
+- The Admin Portal requires **OWNER/ADMIN** role — restrict these roles carefully
+
+### Practical Recommendations
+
+1. **Audit plugin JARs** — Decompile and review source before uploading (e.g., `fernflower`, `jadx`, or IntelliJ)
+2. **Use per-guild plugin disable** — Disable plugins per-guild via `/settings plugins disable <plugin>` if you only need them in specific servers
+3. **Monitor plugin activity** — Check logs for unexpected behavior after adding a new plugin
+4. **Isolate critical instances** — Run security-sensitive bots on dedicated instances without third-party plugins
+
+---
+
 ## Monitoring
 
 ### Health Check

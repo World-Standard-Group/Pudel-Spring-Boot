@@ -591,6 +591,88 @@ See: [SchemaManagement.mermaid](./SchemaManagement.mermaid)
 
 ---
 
+## Plugin Database Migration API (NEW)
+
+The `PluginDatabaseManager` (in `pudel-api`) provides a **schema-as-code, self-reconciling** layer for plugin developers. Instead of writing manual migrations, plugins define their data model via `@Entity` annotated classes with `@Column` annotations, and the manager handles schema creation and evolution automatically.
+
+### Quick Start
+
+```java
+@Entity
+public class UserSetting {
+    private Long id;
+    
+    @Column(name = "discord_user_id", nullable = false)
+    private Long userId;
+    
+    private String settingName;
+    private String settingValue;
+    
+    @Column(defaultValue = "true")
+    private Boolean enabled;
+    
+    @Column(unique = true)
+    private String email;
+    
+    @Column(index = true)
+    private String username;
+    
+    @Column(ignore = true)
+    private transient String cache;  // Not persisted
+    
+    // getters and setters...
+}
+
+// In your plugin's @OnEnable:
+@OnEnable
+public void onEnable(PluginContext context) {
+    PluginDatabaseManager db = context.getDatabaseManager();
+    
+    // Option 1: One-liner auto-migration (recommended)
+    db.autoMigrate(UserSetting.class, GuildConfig.class, UserProfile.class);
+    
+    // Option 2: Individual table control
+    db.createOrUpdateTable(UserSetting.class);
+    
+    // Get repository for CRUD
+    PluginRepository<UserSetting> repo = db.getRepository("user_setting", UserSetting.class);
+}
+```
+
+### API Methods
+
+| Method | Purpose |
+|--------|---------|
+| `autoMigrate(Class<?>... entityClasses)` | **One-liner**: Auto-create or update all tables from entity classes |
+| `createOrUpdateTable(Class<T> entityClass)` | Create table if missing, or add missing columns/indexes if exists |
+| `getTableSchema(String tableName)` | Introspect current database schema (for debugging/comparison) |
+
+### How It Works
+
+1. **Entity → Schema**: Uses `TableSchema.builder().fromEntity()` to derive desired schema from `@Entity` + `@Column` annotations
+2. **Introspection**: Reads current database schema from `information_schema.columns` and `pg_indexes`
+3. **Diff & Apply**: Only adds missing columns/indexes (never drops - safe by default)
+4. **Naming**: Auto-converts `UserSettingEntity` → `user_setting` table name
+
+### Features from `@Column` Annotations
+
+All `@Column` attributes are respected during migration:
+
+- `nullable` — Override nullability (default: inferred from primitive/wrapper)
+- `defaultValue` — SQL default value (e.g., `"true"`, `"0"`, `"'default'"`, `"CURRENT_TIMESTAMP"`)
+- `unique` — Creates unique index
+- `index` — Creates regular index
+- `ignore` — Skip field
+- `name` — Custom column name
+
+### Safety
+
+- **Never destructive** — Only `ADD COLUMN IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`
+- **Idempotent** — Safe to call on every plugin startup
+- **Auto-repair** — Existing schemas are brought up to date automatically
+
+---
+
 ## Configuration
 
 ```env

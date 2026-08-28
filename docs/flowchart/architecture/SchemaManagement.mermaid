@@ -1,53 +1,81 @@
 %% Pudel Schema Management — schema-as-code (self-reconciling)
-%% Replaces the old init.sql + scattered CREATE TABLE IF NOT EXISTS calls.
+%% Two separate systems:
+%% 1. Core Bot Schemas (SchemaManagementService) - per-guild/per-user
+%% 2. Plugin Schemas (PluginDatabaseManager) - plugin-defined entities
 
 flowchart TD
-    subgraph Trigger["Trigger Points"]
-        BOOT["SchemaBootstrapRunner<br/>@CommandLineRunner (after JDA ready)"]
-        JOIN["GuildInitializationService<br/>guild join / user DM"]
-        EMB["MemoryEmbeddingService<br/>ensureGuild/UserEmbeddingTables"]
+    subgraph Trigger[Trigger Points]
+        BOOT[SchemaBootstrapRunner<br/>@CommandLineRunner (after JDA ready)]
+        JOIN[GuildInitializationService<br/>guild join / user DM]
+        EMB[MemoryEmbeddingService<br/>ensureGuild/UserEmbeddingTables]
+        PLUGIN_ON_ENABLE[Plugin @OnEnable<br/>db.autoMigrate(...)]
     end
 
-    subgraph Svc["SchemaManagementService (single source of truth)"]
-        DEF["Declarative TableDefinition<br/>buildGuildTables() / buildUserTables()<br/>buildEmbeddingTables()"]
-        REC["reconcileSchema(schema, tables, embeddingsOnly)"]
-        CT["CREATE TABLE IF NOT EXISTS<br/>(no-op if present)"]
-        AC["ALTER TABLE ADD COLUMN IF NOT EXISTS<br/>(guarded by column-existence check)"]
-        CI["CREATE INDEX IF NOT EXISTS<br/>(no-op if present)"]
-        UC["CREATE UNIQUE INDEX IF NOT EXISTS<br/>uq_&lt;table&gt;_&lt;col&gt;<br/>e.g. uq_passive_context_message_id"]
-        PG["isPgvectorAvailable()<br/>dimension from config"]
+    subgraph SvcCore[SchemaManagementService (Core Bot)]
+        DEF_CORE[Declarative TableDefinition<br/>buildGuildTables() / buildUserTables()<br/>buildEmbeddingTables()]
+        REC_CORE[reconcileSchema(schema, tables, embeddingsOnly)]
+        CT_CORE[CREATE TABLE IF NOT EXISTS<br/>(no-op if present)]
+        AC_CORE[ALTER TABLE ADD COLUMN IF NOT EXISTS<br/>(guarded by column-existence check)]
+        CI_CORE[CREATE INDEX IF NOT EXISTS<br/>(no-op if present)]
+        UC_CORE[CREATE UNIQUE INDEX IF NOT EXISTS<br/>uq_<table>_<col><br/>e.g. uq_passive_context_message_id]
+        PG_CORE[isPgvectorAvailable()<br/>dimension from config]
     end
 
-    subgraph DB["PostgreSQL"]
-        PUB["public schema<br/>(Hibernate ddl-auto: update)"]
-        GUILD["guild_{id} schema<br/>dialogue_history, passive_context,<br/>forwarded_messages, user_preferences,<br/>memory, memory_embeddings,<br/>dialogue_embeddings"]
-        USER["user_{id} schema<br/>pudel_settings, dialogue_history,<br/>memory, memory_embeddings,<br/>dialogue_embeddings"]
+    subgraph SvcPlugin[PluginDatabaseManager (Plugin API)]
+        DEF_PLUGIN[TableSchema.fromEntity(Class<?>)\n@Entity + @Column annotations]
+        REC_PLUGIN[autoMigrate(entityClasses...)\ncreateOrUpdateTable(entityClass)]
+        CT_PLUGIN[CREATE TABLE IF NOT EXISTS\n(plugin schema)]
+        AC_PLUGIN[ALTER TABLE ADD COLUMN IF NOT EXISTS\n(missing columns from entity)]
+        CI_PLUGIN[CREATE INDEX IF NOT EXISTS\n(from @Column(index/unique))]
+        UC_PLUGIN[CREATE UNIQUE INDEX IF NOT EXISTS\n(from @Column(unique=true))]
     end
 
-    BOOT --> REC
-    JOIN --> REC
-    EMB --> REC
-    DEF --> REC
+    subgraph DB[PostgreSQL]
+        PUB[public schema<br/>(Hibernate ddl-auto: update)]
+        GUILD[guild_{id} schema<br/>dialogue_history, passive_context,<br/>forwarded_messages, user_preferences,<br/>memory, memory_embeddings,<br/>dialogue_embeddings]
+        USER[user_{id} schema<br/>pudel_settings, dialogue_history,<br/>memory, memory_embeddings,<br/>dialogue_embeddings]
+        PLUGIN_SCHEMA[plugin_{pluginId} schema<br/>(plugin-defined tables from entities)]
+    end
 
-    REC --> CT
-    CT --> AC
-    AC --> CI
-    CI --> UC
-    UC --> PG
+    %% Core Bot flow
+    BOOT --> REC_CORE
+    JOIN --> REC_CORE
+    EMB --> REC_CORE
+    DEF_CORE --> REC_CORE
 
-    REC -->|"per-guild tables"| GUILD
-    REC -->|"per-user tables"| USER
+    REC_CORE --> CT_CORE
+    CT_CORE --> AC_CORE
+    AC_CORE --> CI_CORE
+    CI_CORE --> UC_CORE
+    UC_CORE --> PG_CORE
+
+    REC_CORE -->|"per-guild tables"| GUILD
+    REC_CORE -->|"per-user tables"| USER
     PUB -.->|"managed separately by Hibernate"| DB
 
+    %% Plugin flow
+    PLUGIN_ON_ENABLE --> REC_PLUGIN
+    DEF_PLUGIN --> REC_PLUGIN
+
+    REC_PLUGIN --> CT_PLUGIN
+    CT_PLUGIN --> AC_PLUGIN
+    AC_PLUGIN --> CI_PLUGIN
+    CI_PLUGIN --> UC_PLUGIN
+
+    REC_PLUGIN -->|"plugin tables"| PLUGIN_SCHEMA
+
     %% Safety properties
-    SAFE["Never DESTRUCTIVE:<br/>no DROP / RENAME / ALTER TYPE<br/>idempotent — safe to re-run<br/>auto-repairs existing schemas"]
+    SAFE_CORE["Core: Never DESTRUCTIVE:<br/>no DROP / RENAME / ALTER TYPE<br/>idempotent — safe to re-run<br/>auto-repairs existing schemas"]
+    SAFE_PLUGIN["Plugin: Never DESTRUCTIVE:<br/>no DROP / RENAME / ALTER TYPE<br/>idempotent — safe to re-run<br/>auto-repairs existing schemas"]
 
     classDef trigger fill:#1565c0,stroke:#0d47a1,color:#fff
-    classDef svc fill:#00796b,stroke:#004d40,color:#fff
+    classDef svcCore fill:#00796b,stroke:#004d40,color:#fff
+    classDef svcPlugin fill:#6a1b9a,stroke:#4a148c,color:#fff
     classDef db fill:#f57c00,stroke:#e65100,color:#fff
     classDef safe fill:#2e7d32,stroke:#1b5e20,color:#fff
 
-    class BOOT,JOIN,EMB trigger
-    class DEF,REC,CT,AC,CI,UC,PG svc
-    class PUB,GUILD,USER db
-    class SAFE safe
+    class BOOT,JOIN,EMB,PLUGIN_ON_ENABLE trigger
+    class DEF_CORE,REC_CORE,CT_CORE,AC_CORE,CI_CORE,UC_CORE,PG_CORE svcCore
+    class DEF_PLUGIN,REC_PLUGIN,CT_PLUGIN,AC_PLUGIN,CI_PLUGIN,UC_PLUGIN svcPlugin
+    class PUB,GUILD,USER,PLUGIN_SCHEMA db
+    class SAFE_CORE,SAFE_PLUGIN safe
