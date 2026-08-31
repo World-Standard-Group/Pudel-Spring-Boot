@@ -32,7 +32,7 @@ FROM ${JDK_VENDOR}:${JDK_VERSION}-jdk AS runtime
 
 LABEL maintainer="World Standard Group"
 LABEL description="Pudel Discord Bot - AI Assistant with Plugin System"
-LABEL version="2.3.1"
+LABEL version="2.5.0"
 
 # Install only required runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -84,7 +84,7 @@ ENV DISCORD_REDIRECT_URI=http://localhost/auth/callback
 # Pudel Configuration
 ENV PUDEL_BRANDING_NAME=Pudel
 ENV PUDEL_BRANDING_CODENAME="Canis Lupus Familiaris"
-ENV PUDEL_BRANDING_VERSION=2.4.0
+ENV PUDEL_BRANDING_VERSION=2.5.0
 ENV PUDEL_ADMIN_INITIAL_OWNER=
 
 # JWT Configuration (keys mounted via volume)

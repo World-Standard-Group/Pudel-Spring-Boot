@@ -55,7 +55,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
         <maven.deploy.skip>true</maven.deploy.skip>
-        <pudel.version>2.4.0</pudel.version>
+        <pudel.version>2.5.0</pudel.version>
 
         <!--JDA Version Control-->
         <jda.version>6.5.0</jda.version>
