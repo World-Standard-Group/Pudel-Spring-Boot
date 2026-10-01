@@ -1,123 +1,134 @@
-%% Pudel Admin Mutual RSA Authentication Flow v2.5.0
-%% Each admin has their own RSA keypair for mutual authentication
+%% Pudel Admin Mutual Authentication Flow v2.5.0
+%% Server proves identity with Ed25519 (keys/pv.key), each admin proves identity
+%% with their own RSA keypair. The resulting AdminJWT is DPoP-bound and stored in
+%% dpop_keys.admin_token — it is never returned to the browser.
 
 sequenceDiagram
     participant Admin as Admin User
     participant Browser as Browser (Vue)
-    participant API as Pudel API
+    participant API as AdminController
+    participant Filter as JwtAuthenticationFilter
+    participant KeyMgr as DPoPKeyManager
     participant DB as PostgreSQL
     participant Discord as Discord OAuth2
 
-    Note over Admin,Discord: Step 1: Discord OAuth Login (Required First)
+    Note over Admin,Discord: Step 1: Discord OAuth login (cookie session required first)
 
     Admin->>Browser: Click "Login with Discord"
     Browser->>Discord: Redirect to OAuth2
     Discord->>Admin: Consent screen
     Admin->>Discord: Approve
     Discord->>Browser: Redirect with code
-    Browser->>API: POST /api/auth/discord/callback
+    Browser->>API: POST /api/auth/discord/callback (Cookie: pudel_session)
     API->>Discord: Exchange code for tokens
     Discord-->>API: User info (id, username)
-    API->>API: Generate User JWT
-    API-->>Browser: { token, user }
-    Browser->>Browser: Store user JWT
+    API->>DB: Store DPoP-bound user JWT in dpop_keys.access_token
+    API-->>Browser: { accessToken: null, user, tokenType: "COOKIE" }
+    Note right of Browser: Nothing to store — the HttpOnly cookie is the credential
 
-    Note over Admin,Discord: Step 2: Check Admin Eligibility
+    Note over Admin,Discord: Step 2: Check admin eligibility
 
     Admin->>Browser: Click "Admin Portal"
-    Browser->>API: GET /api/admin/check
-    Note right of Browser: Authorization: Bearer <userJWT>
-
-    API->>API: Extract discordUserId from JWT
-    API->>DB: SELECT * FROM admin_whitelist WHERE discord_user_id = ?
-
-    alt User in Whitelist
-        DB-->>API: Admin entry (with hasPublicKey status)
-        API-->>Browser: { isAdmin: true, hasPublicKey: true, adminRole: "OWNER" }
-    else Not in Whitelist
-        API-->>Browser: { isAdmin: false, reason: "Not in whitelist" }
+    Browser->>Filter: GET /api/admin/check (cookie only)
+    Filter->>Filter: Authenticate cookie session<br/>request attr pudel.session.keyId
+    Filter-->>API: Authentication(principal = discordUserId, [DPOP_VERIFIED])
+    API->>DB: SELECT admin_whitelist WHERE discord_user_id = ?
+    alt In whitelist and enabled
+        DB-->>API: Admin entry
+        API-->>Browser: { isAdmin: true, isAdminSession: false,<br/>adminRole, canModify, canManageAdmins, hasPublicKey }
+    else Not in whitelist / disabled
+        API-->>Browser: { isAdmin: false, reason: "..." }
         Browser-->>Admin: Access Denied
     end
 
-    Note over Admin,Discord: Step 3: Request Challenge
+    Note over Admin,Discord: Step 3: Request challenge (server proves identity)
 
     Admin->>Browser: Click "Request Challenge"
     Browser->>API: GET /api/admin/challenge
+    API->>API: Load Ed25519 keys (jwtUtil.getPrivateKey/getPublicKey)
+    API->>API: challengeId = UUID, nonce = UUID, expiry = now + 60s
+    API->>API: Sign challenge JWT with EdDSA
+    Note right of API: sub=pudel-admin-challenge,<br/>claims: challengeId, nonce, timestamp
+    API->>API: pendingChallenges[challengeId] = ChallengeData<br/>(in-memory, swept every 60s)
+    API-->>Browser: { challengeId, nonce, timestamp, expiry, signature }
 
-    API->>API: Generate random nonce & challengeId
-    API->>API: Sign challenge with Pudel's PRIVATE key
-    Note right of API: signature = RSA_SIGN(payload, pudelPrivateKey)
-    API->>API: Store challenge (expires in 5 min)
+    Note over Admin,Discord: Step 4: Verify server identity (optional)
 
-    API-->>Browser: { challengeId, nonce, signature, expiry }
+    Browser->>Browser: GET /api/admin/public-key -> { publicKey, algorithm: "EdDSA" }
+    Browser->>Browser: Verify challenge signature with that public key
+    Browser-->>Admin: "Server identity verified"
 
-    Note over Admin,Discord: Step 4: Verify Server Identity (Optional)
+    Note over Admin,Discord: Step 5: Admin signs the nonce (RSA)
 
-    Browser->>Browser: Verify Pudel's signature
-    Note right of Browser: Using Pudel's PUBLIC key<br/>Confirms this is real Pudel server
-    Browser-->>Admin: "Server Identity Verified ✓"
+    Admin->>Browser: Provide RSA private key (stays in browser)
+    Browser->>Browser: SHA256withRSA_sign(nonce, adminPrivateKey)
+    Note right of Browser: signature = Base64(SHA256withRSA(nonce))
+    Browser-->>Admin: "Challenge signed"
 
-    Note over Admin,Discord: Step 5: Sign Challenge with Admin's Private Key
-
-    Admin->>Browser: Upload/paste private key
-    Note right of Admin: Private key stays in browser!
-    Browser->>Browser: RSA_SIGN(nonce, adminPrivateKey)
-    Note right of Browser: Using Web Crypto API<br/>Key never transmitted
-    Browser-->>Browser: signature = Base64(signedNonce)
-    Browser-->>Admin: "Challenge Signed ✓"
-
-    Note over Admin,Discord: Step 6: Submit Signed Challenge
+    Note over Admin,Discord: Step 6: Submit signed challenge
 
     Admin->>Browser: Click "Complete Login"
-    Browser->>API: POST /api/admin/auth/mutual
-    Note right of Browser: Authorization: Bearer <userJWT><br/>Body: { challengeId, signature }
+    Browser->>API: POST /api/admin/auth/mutual (cookie only)<br/>Body: { challengeId, signature }
+    API->>API: browserKeyId = request attr pudel.session.keyId
+    API->>DB: SELECT dpop_keys WHERE key_id = browserKeyId
+    API->>API: presentedThumbprint = KeyMgr.getPublicKeyThumbprint(browserKeyId)
+    API->>API: discordUserId must match ^\d{17,19}$
+    API->>API: pendingChallenges.remove(challengeId) and reject if absent/expired
+    API->>DB: SELECT public_key_pem FROM admin_whitelist
+    API->>API: KeyFactory("RSA") from PEM
+    API->>API: SHA256withRSA_verify(nonce, signature, adminPublicKey)
 
-    API->>API: Validate challenge exists & not expired
-    API->>API: Extract discordUserId from user JWT
-    API->>DB: SELECT public_key_pem FROM admin_whitelist<br/>WHERE discord_user_id = ?
-    DB-->>API: Admin's public key (PEM)
-
-    API->>API: Load public key from PEM
-    API->>API: Verify signature
-    Note right of API: RSA_VERIFY(nonce, signature, adminPublicKey)
-
-    alt Signature Valid
-        API->>API: Generate AdminJWT (24-hour session)
-        Note right of API: Claims: sessionId, discordUserId,<br/>adminRole, canModify, canManageAdmins
+    alt Signature valid
+        API->>API: jwtUtil.generateDPoPBoundToken("pudel-admin-session",<br/>{ sessionId, discordUserId, discordUsername,<br/>adminRole, canModify, canManageAdmins }, presentedThumbprint)
+        Note right of API: EdDSA signed, cnf.jkt = browser session thumbprint.<br/>ADMIN_SESSION_EXPIRY_MS = 1 hour.
+        API->>KeyMgr: storeAdminToken(browserKeyId, adminToken)
+        KeyMgr->>DB: UPDATE dpop_keys SET admin_token = …
         API->>DB: UPDATE admin_whitelist SET last_login = NOW()
-        API-->>Browser: { success: true, adminToken, adminRole }
-        Browser->>Browser: Store adminToken
-        Browser-->>Admin: Redirect to Admin Dashboard
-    else Signature Invalid
-        API-->>Browser: { error: "Signature verification failed" }
-        Browser-->>Admin: "Authentication Failed"
+        API->>Browser: Set-Cookie pudel-swagger-session=<adminToken><br/>HttpOnly, SameSite=Lax, Secure when X-Forwarded-Proto=https
+        API-->>Browser: { success: true, discordUserId, adminRole,<br/>canModify, canManageAdmins, expiresAt, expiresIn: 3600 }
+        Note right of Browser: No adminToken in the body — nothing to store in JS
+    else Not whitelisted / disabled / no key / bad signature
+        API-->>Browser: 403 or 401 { error: "..." }
     end
 
-    Note over Admin,Discord: Admin Panel Operations (Authenticated)
+    Note over Admin,Discord: Step 7: Admin operations (cookie + DB-backed admin token)
 
-    Admin->>Browser: Manage Plugins
-    Browser->>API: GET /api/admin/plugins
-    Note right of Browser: Authorization: Bearer <adminToken>
-
-    API->>API: Validate AdminJWT
-    API->>API: Check session & permissions
-
-    alt Valid Admin Session
-        API->>DB: Query plugin data
-        DB-->>API: Plugin list
-        API-->>Browser: { plugins: [...] }
-        Browser-->>Admin: Display Plugin Manager
-    else Invalid/Expired Session
-        API-->>Browser: 401 Unauthorized
-        Browser->>Browser: Redirect to Admin Login
+    Admin->>Browser: Manage plugins
+    Browser->>Filter: GET /api/admin/plugins (cookie only)
+    Filter-->>API: Authenticated request + pudel.session.keyId
+    API->>API: validateAdminSession(authHeader)
+    Note right of API: Ignores the header. Loads dpop_keys.admin_token<br/>for the current browser key, verifies EdDSA signature,<br/>requires sub=pudel-admin-session and a non-expired exp.<br/>An expired token is cleared from the row.
+    alt Valid admin session
+        API-->>Browser: { plugins: [...], total, enabled }
+    else No/expired admin token
+        API-->>Browser: 401 { error: "Invalid or missing admin token" }
     end
 
-    Note over Admin,Discord: Logout
+    Note over Admin,Discord: Step 8: Live log stream over WebSocket
+
+    Admin->>Browser: Open log viewer
+    Browser->>API: WS handshake /ws/admin/logs (cookie travels with handshake)
+    API->>API: AdminLogHandshakeInterceptor.beforeHandshake
+    Note right of API: Allowed origins = pudel.cors.allowed-origins (strict).<br/>Reads cookie -> dpop_keys.admin_token -> validateToken +<br/>sub/expiry checks. Rejects with 401 otherwise.
+    API-->>Browser: 101 Switching Protocols
+    API-->>Browser: log entries pushed over the socket
+
+    Note over Admin,Discord: Step 9: Swagger UI access (separate cookie)
+
+    Admin->>Browser: Open API docs
+    Browser->>API: POST /api/admin/swagger/authorize (cookie only)
+    API->>API: Requires a valid admin session
+    API->>Browser: Set-Cookie pudel-swagger-session (subject pudel-swagger-session, 1h, SameSite=Lax)
+    Browser->>API: GET /swagger-ui.html
+    API->>API: SwaggerAccessFilter checks the swagger cookie
+    API-->>Browser: Swagger UI
+    Note right of API: DELETE /api/admin/swagger/authorize clears it.<br/>Query-parameter tokens (?swaggerToken=…) exist only when<br/>pudel.swagger.allow-query-token=true, and expire after 30s.
+
+    Note over Admin,Discord: Step 10: Logout
 
     Admin->>Browser: Click "Logout"
-    Browser->>API: POST /api/admin/logout
-    Note right of Browser: Authorization: Bearer <adminToken>
-    API->>API: Invalidate session
-    API-->>Browser: { success: true }
-    Browser->>Browser: Clear adminToken
-    Browser-->>Admin: Redirect to Home
+    Browser->>API: POST /api/admin/logout (cookie only)
+    API->>KeyMgr: clearAdminToken(browserKeyId)
+    KeyMgr->>DB: UPDATE dpop_keys SET admin_token = NULL
+    Note right of KeyMgr: The browser session itself stays alive
+    API-->>Browser: { message: "Logged out successfully" }

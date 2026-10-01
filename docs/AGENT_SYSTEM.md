@@ -44,7 +44,7 @@ Agent Response   BuiltinAgent  Plugin
 
 ## Components
 
-### PudelAgentService (`pudel-model`)
+### PudelAgentService (`pudel-core`)
 The orchestrator that:
 - Manages chat memory per session
 - Creates AI service instances with tools
@@ -91,7 +91,7 @@ Bridge between the `AgentToolRegistry` and LangChain4j's agent system:
                               │
               ┌───────────────┼───────────────┐
               │               │               │
-        pudel-core      pudel-core-text   pudel-core-tools
+        pudel-core (all built-ins ship in pudel-core)
         (slash cmds)    (text cmds)       (agent tools)
               │               │               │
     PluginAnnotation   PluginAnnotation   AgentToolRegistry

@@ -19,9 +19,10 @@ This document describes the complete architecture of Pudel Discord Bot — refle
 - [Configuration](#configuration)
 - [Authentication Architecture](#authentication-architecture)
   - [Security Filter Chain](#security-filter-chain)
-  - [User Authentication (Discord OAuth + DPoP)](#user-authentication-discord-oauth--optional-dpop)
+  - [Session Bootstrap](#session-bootstrap)
+  - [User Authentication (Discord OAuth + DPoP)](#user-authentication-discord-oauth--dpop)
   - [DPoP (RFC 9449)](#dpop-demonstrating-proof-of-possession--rfc-9449)
-  - [Admin Authentication (Mutual RSA)](#admin-authentication-mutual-rsa)
+  - [Admin Authentication (Mutual)](#admin-authentication-mutual)
 
 ---
 
@@ -29,7 +30,7 @@ This document describes the complete architecture of Pudel Discord Bot — refle
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│                             PUDEL DISCORD BOT v2.3.1                          │
+│                             PUDEL DISCORD BOT v2.5.0                          │
 ├───────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │  ┌────────────────────┐       ┌─────────────────────┐       ┌──────────────┐  │
@@ -120,23 +121,40 @@ pudel/
 │   │   ├── ChatbotService.java
 │   │   ├── CommandExecutionService.java
 │   │   ├── DiscordAPIService.java
-│   │   ├── DPoPService.java
+│   │   ├── DPoPService.java           # RFC 9449 proof validation
+│   │   ├── DPoPKeyManager.java        # Ed25519 keypair persistence + proof signing
 │   │   ├── SubscriptionService.java
 │   │   ├── MarketPluginService.java
 │   │   └── MemoryEmbeddingService.java
+│   ├── session/                      # BFF session layer
+│   │   ├── SessionCookieService.java  # AES-GCM encrypted HttpOnly cookie
+│   │   └── SessionAuthenticationService.java  # cookie → internal DPoP proof → validate
+│   ├── websocket/                    # Admin log stream
+│   │   ├── WebSocketConfiguration.java
+│   │   ├── AdminLogHandshakeInterceptor.java
+│   │   └── AdminLogWebSocketHandler.java
+│   ├── config/springboot/
+│   │   ├── SecurityConfiguration.java
+│   │   ├── JwtAuthenticationFilter.java   # cookie-only, rejects Authorization
+│   │   ├── SwaggerAccessFilter.java
+│   │   ├── JwtUtil.java                  # EdDSA (Ed25519) sign/verify
+│   │   ├── SpaWebConfig.java
+│   │   └── OpenApiConfig.java
 │   ├── interaction/
 │   │   ├── InteractionManagerImpl.java  # Two-tier sync (global + per-guild)
 │   │   ├── InteractionEventListener.java
 │   │   └── builtin/
 │   │       ├── BuiltinCommands.java          # Components V2 /settings panel
 │   │       ├── BuiltinTextCommands.java      # !ping + !help (with paged navigation)
-│   │       ├── BuiltinAgentTools.java        # AI agent data management tools
+│   │       ├── BuiltinAgentTools.java        # 14 @AgentTool methods
 │   │       └── BuiltinSlashCommandRegistrar.java  # Registers all 3 at startup
 │   ├── controller/                     # REST API (Vue Dashboard)
 │   │   ├── AdminController.java       # Admin-only: global plugin management
 │   │   ├── GuildSettingsController.java # Guild plugin enable/disable + settings
 │   │   ├── GuildDataController.java
 │   │   ├── AuthController.java
+│   │   ├── SessionController.java     # Encrypted browser session bootstrap/rotate
+│   │   ├── DPoPController.java        # Legacy key management endpoints
 │   │   ├── BotInstanceController.java
 │   │   ├── BotStatusController.java
 │   │   ├── BrainController.java
@@ -181,6 +199,7 @@ pudel/
 │   │   ├── GuildSettings.java         # disabled_plugins CSV field
 │   │   ├── PluginMetadata.java
 │   │   ├── AdminWhitelist.java
+│   │   ├── DPoPKey.java               # browser session keypair + server-held tokens
 │   │   ├── User.java / BotUser.java
 │   │   ├── Guild.java / UserGuild.java
 │   │   ├── Subscription.java
@@ -189,10 +208,12 @@ pudel/
 │       ├── GuildSettingsRepository.java
 │       ├── PluginMetadataRepository.java
 │       ├── AdminWhitelistRepository.java
+│       ├── DPoPKeyRepository.java
 │       └── ...
-│
+
 ├── plugins/            # Hot-reload directory for plugin JARs
-└── keys/               # JWT + Admin RSA keys + mTLS client certs
+└── keys/               # Ed25519 JWT keys (pv.key/pb.key), admin RSA public keys,
+                        # session cookie key, mTLS client certs
 ```
 
 See: [ModuleStructure.mermaid](./ModuleStructure.mermaid)
@@ -312,16 +333,17 @@ BuiltinCommands.handlePluginToggle()
 |---------|-------------|-------|
 | `/settings` | Components V2 interactive Settings Panel | Global |
 
-**Text Commands** (`BuiltinTextCommands` — `pudel-core-text`):
+**Text Commands** (`BuiltinTextCommands` — `pudel-core`):
 
 | Command | Description | Features |
 |---------|-------------|----------|
 | `!ping` | Bot latency (rich embed) | Gateway + round-trip |
 | `!help` | Full command listing | Paged (8/page), ⏮◀▶⏭ buttons, `!help <cmd>` detail |
 
-**Agent Tools** (`BuiltinAgentTools` — `pudel-core-tools`):
+**Agent Tools** (`BuiltinAgentTools` — `pudel-core`):
 
-14 tools registered via `AgentToolRegistry.registerProvider()`. See [AGENT_SYSTEM.md](../../AGENT_SYSTEM.md).
+14 `@AgentTool` methods registered via `AgentToolRegistry.registerProvider()`.
+See [AGENT_SYSTEM.md](../../AGENT_SYSTEM.md).
 
 **Removed** (merged into `/settings` panel):
 - ~~`/ai`~~ → Settings Panel > AI view
@@ -334,9 +356,9 @@ All built-in components are registered at `@PostConstruct`:
 
 ```
 BuiltinSlashCommandRegistrar
-├── processAndRegister("pudel-core", builtinCommands)        → slash commands
-├── processAndRegister("pudel-core-text", builtinTextCommands) → text commands
-├── agentToolRegistry.registerProvider("pudel-core-tools", builtinAgentTools) → agent tools
+├── processAndRegister(BuiltinCommands @Plugin name, …, dbPrefix "")      → slash commands
+├── processAndRegister(BuiltinTextCommands @Plugin name, …, dbPrefix "") → text commands
+├── agentToolRegistry.registerProvider(BuiltinAgentTools) → agent tools
 └── syncCommands()                                            → push to Discord
 ```
 
@@ -484,15 +506,24 @@ Swagger UI:   http://localhost:8080/swagger-ui.html
 OpenAPI JSON: http://localhost:8080/v3/api-docs
 ```
 
-Configured in `OpenApiConfig.java` with 3 security schemes:
+Configured in `OpenApiConfig.java` with 3 security schemes. Note that these
+describe the *API surface for non-browser clients*; the Vue SPA authenticates
+with the encrypted session cookie and the `JwtAuthenticationFilter` rejects
+`Authorization` headers outright.
 
 | Scheme | Type | Description |
 |--------|------|-------------|
-| `Bearer` | HTTP Bearer | Standard JWT from Discord OAuth callback |
+| `Bearer` | HTTP Bearer | Session JWT from Discord OAuth callback (non-browser clients) |
 | `DPoP` | API Key (Header) | DPoP proof token (RFC 9449) — use `DPoP <token>` in Authorization + proof in `DPoP` header |
-| `AdminBearer` | HTTP Bearer | Admin JWT from mutual RSA authentication flow |
+| `AdminBearer` | HTTP Bearer | Admin JWT from the mutual authentication flow (non-browser clients) |
 
-Toggle via environment: `SWAGGER_ENABLED=true/false` (default: `true`)
+Swagger UI and `/v3/api-docs/**` are additionally gated by
+`SwaggerAccessFilter`: set `SWAGGER_ACCESS_PROTECTED=false` to open them, or
+have an admin call `POST /api/admin/swagger/authorize` to obtain the
+`pudel-swagger-session` cookie. Query-parameter tokens
+(`pudel.swagger.allow-query-token`) are off by default and expire after 30 s.
+
+Toggle docs availability via environment: `SWAGGER_ENABLED=true/false` (default: `true`)
 
 ---
 
@@ -517,6 +548,8 @@ plugin_metadata         # Loaded plugin info (name, version, jar_path)
 plugin_kv_store         # Plugin key-value storage
 plugin_database_registry # Plugin table registry
 admin_whitelist         # Admin RSA public keys
+dpop_keys               # Browser session Ed25519 keypair + server-held
+                        #   access_token / admin_token, thumbprint, expiry
 market_plugins          # Plugin marketplace
 bot_users               # Bot user records
 ```
@@ -689,165 +722,258 @@ POSTGRES_PASSWORD=password
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 
-# JWT (for user authentication)
+# JWT / DPoP (Ed25519 — used to sign session, admin and swagger tokens)
 JWT_PRIVATE_KEY_PATH=./keys/pv.key
 JWT_PUBLIC_KEY_PATH=./keys/pb.key
+JWT_EXPIRATION=604800000
 
-# Admin Authentication
+# Browser session cookie (AES-GCM; SESSION_KEY is hashed, SESSION_KEYFILE is generated)
+SESSION_NAME=pudel_session
+SESSION_KEY=
+SESSION_KEYFILE=cookie.key
+
+# Admin Authentication (admins sign challenges with their own RSA key)
 PUDEL_ADMIN_INITIAL_OWNER=123456789012345678
 PUDEL_ADMIN_OWNER_PUBLIC_KEY_PATH=./keys/owner_pb.key
+
+# Browser origins allowed to send credentialed requests
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost
+
+# Swagger / OpenAPI
+SWAGGER_ENABLED=true
+SWAGGER_ACCESS_PROTECTED=true
 ```
 
 ---
 
 ## Authentication Architecture
 
-Pudel implements a layered authentication system with three mechanisms:
+Pudel is a **cookie-only Backend-for-Frontend**. The browser holds exactly one
+credential — an AES-GCM encrypted, `HttpOnly`, `Secure`, `SameSite=Strict`
+cookie whose plaintext is an opaque database key id. There is no bearer token
+in `localStorage`, no `Authorization` header, and no client-side proof signing.
 
-1. **Discord OAuth2** — user login via Discord, returns JWT
-2. **DPoP (RFC 9449)** — optional proof-of-possession binding for stolen token protection
-3. **Admin Mutual RSA** — admin-level access via RSA keypair challenge-response
+Three layers stack on top of that cookie:
+
+1. **Encrypted browser session** — `SessionController` + `SessionCookieService`
+   mint and rotate the cookie; `dpop_keys` holds the Ed25519 keypair and the
+   server-held JWT.
+2. **DPoP (RFC 9449), server-minted** — `SessionAuthenticationService` signs a
+   fresh, single-use `EdDSA` proof for every request and `DPoPService`
+   validates it in the same request. The proof never leaves the process.
+3. **Admin mutual authentication** — Ed25519 server challenge, RSA admin
+   signature; the resulting AdminJWT is DPoP-bound and persisted in
+   `dpop_keys.admin_token`.
+
+All JWTs (user, admin, swagger) are signed `EdDSA` (Ed25519) with
+`keys/pv.key` and verified with `keys/pb.key`.
 
 ### Security Filter Chain
 
 ```
-Every HTTP Request
+SwaggerAccessFilter (runs before JwtAuthenticationFilter, only /swagger-ui*, /v3/api-docs/*)
     │
-    ▼
-JwtAuthenticationFilter
-    ├── Extract Authorization header
+JwtAuthenticationFilter  (OncePerRequestFilter, inside the Spring Security chain)
     │
-    ├── Authorization: Bearer <token>
-    │   ├── Validate JWT signature (RSA public key)
-    │   ├── Check: is this a DPoP-bound token?
-    │   │   ├── YES → Reject! Must use "DPoP" scheme
-    │   │   │         (WWW-Authenticate: DPoP error="use_dpop_nonce")
-    │   │   └── NO  → Standard Bearer flow, set auth context
-    │   └── Grant: [USER]
+    ├── Authorization header present (any scheme)?
+    │      └── 401 { "error": "invalid_token",
+    │                  "error_description": "Authorization headers are not accepted;
+    │                                          use the encrypted session cookie" }
     │
-    ├── Authorization: DPoP <token>
-    │   ├── Validate JWT signature (RSA public key)
-    │   ├── Require DPoP header present
-    │   ├── DPoPService.validateProofForResource()
-    │   │   ├── Verify proof signature (client's public key from JWK)
-    │   │   ├── Validate jti (replay detection)
-    │   │   ├── Validate htm (HTTP method match)
-    │   │   ├── Validate htu (URI match, reverse-proxy aware)
-    │   │   ├── Validate iat (not too old, not future)
-    │   │   ├── Validate ath (SHA-256 hash of access token)
-    │   │   └── Verify thumbprint matches token binding
-    │   ├── Set auth context
-    │   └── Grant: [USER, DPOP_VERIFIED]
+    ├── SessionCookieService.readKeyId(request)
+    │      ├── AES-GCM decrypt (v1 envelope: { keyId, exp })
+    │      └── no cookie / bad ciphertext / expired envelope → unauthorized
     │
-    └── No Authorization header → anonymous (public endpoints only)
+    ├── DPoPKeyManager.findActiveSession(keyId)
+    │      └── row must have is_active = true AND expires_at > now()
+    │
+    ├── JwtUtil.validateToken(row.access_token)
+    │      └── EdDSA signature + exp verified against keys/pb.key
+    │
+    ├── SessionAuthenticationService.signInternalProof(keyId, method, uri, token)
+    │      └── payload { jti, htm, htu, iat, ath }, header { typ, alg: EdDSA, jwk }
+    │
+    ├── DPoPService.validateProofForResource(proof, method, uri, token, keyId)
+    │      ├── reconstruct PublicKey from the stored OKP JWK
+    │      ├── verify EdDSA signature; reject unless alg == "EdDSA"
+    │      ├── htm == request method
+    │      ├── htu == host + port + path (scheme ignored, reverse-proxy safe)
+    │      ├── |now - iat| <= 60_000 ms
+    │      ├── jti single-use (per-keyId ledger, expired entries purged)
+    │      └── ath == base64url(SHA-256(accessToken))
+    │
+    ├── cnf.jkt of the access token == proof thumbprint
+    ├── token subject == dpop_keys.user_id
+    │
+    └── set Authentication(discordUserId, [DPOP_VERIFIED])
+        request.setAttribute("pudel.session.keyId", keyId)
+        → 401 { "error": "invalid_session", "error_description": <reason> } on any failure
 ```
 
-### User Authentication (Discord OAuth + Optional DPoP)
+Paths excluded from the filter (`JwtAuthenticationFilter.shouldNotFilter`):
+`/api/session/**`, `/api/auth/discord/**`, `/api/auth/refresh`,
+`/api/auth/logout`, `/api/bot/**`, `/ws/admin/**`,
+`/api/admin/logs/stream` (endpoint removed — see below), the public
+`GET /api/plugins*` reads, and
+`/api/dpop/**`.
+
+`SecurityConfiguration` is stateless (`SessionCreationPolicy.STATELESS`), CSRF
+is disabled (no ambient cookie-authenticated state-changing form surface),
+CORS allows credentials from `pudel.cors.allowed-origins` and only the
+`Content-Type` request header.
+
+### Session Bootstrap
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/session/bootstrap` | GET | Reuse the active cookie session or create a new anonymous key; returns `{ ready, expiresAt, maxAgeSeconds }` and no key id or token |
+| `/api/session/rotate` | POST | Force a fresh Ed25519 key + cookie; tokens bound to the old key id stop working |
+| `/api/auth/me` | GET | Restore the user after a page refresh using only the cookie |
+
+Cookie attributes: `HttpOnly`, `Secure`, `SameSite=Strict`, `path=/`,
+`Max-Age = pudel.jwt.expiration / 1000`. The AES key comes from
+`pudel.session.cookie-secret` (SHA-256 of the passphrase) or a generated
+32-byte `pudel.session.cookie-key-path` file.
+
+### User Authentication (Discord OAuth + DPoP)
 
 ```
-Standard flow:
-  User → Discord OAuth → POST /api/auth/discord/callback
-       → Bearer JWT (RSA signed, 7 days)
-
-DPoP-enhanced flow:
-  User → Discord OAuth → POST /api/auth/discord/callback
-       + DPoP header: signed proof JWT with client's public key
-       → DPoP-bound JWT (contains cnf.jkt thumbprint claim)
-       → Every subsequent request must include fresh DPoP proof
+1. GET  /api/session/bootstrap          → encrypted cookie
+2. User authorises on Discord
+3. POST /api/auth/discord/callback { code, redirectUri }
+       → AuthService.handleOAuthCallback(code, browserKeyId)
+       → JwtUtil.generateDPoPBoundToken(userId, { username }, thumbprint)
+       → DPoPKeyManager.bindSessionKey(browserKeyId, userId, jwt)
+       → 200 { accessToken: null, user: {...}, tokenType: "COOKIE" }
+4. POST /api/auth/refresh               → re-mint the server-held token
+                                         (refreshes the Discord token if it
+                                         expires within 300s)
+5. POST /api/auth/logout                → dpop_keys.is_active = false, cookie cleared
 ```
+
+Every later request carries only the cookie; the filter signs and validates the
+DPoP proof internally.
 
 See: [AuthFlow.mermaid](./AuthFlow.mermaid)
 
 ### DPoP (Demonstrating Proof-of-Possession) — RFC 9449
 
-DPoP prevents token theft by cryptographically binding tokens to the client's keypair. Even if a JWT is intercepted, it **cannot be used** without the client's private key.
+Tokens are cryptographically bound to the browser's Ed25519 key, so an
+intercepted token is useless without the matching private key — which never
+leaves the server.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DPoP TOKEN LIFECYCLE                               │
+│                    DPoP LIFECYCLE (server-minted proofs)                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Token Request (OAuth callback)                                          │
-│  ──────────────────────────────────                                         │
-│  Client generates RSA/EC keypair (Web Crypto API, in browser)               │
-│  Client creates DPoP proof JWT:                                             │
-│    Header: { typ: "dpop+jwt", alg: "RS256", jwk: { client public key } }    │
-│    Payload: { jti: unique, htm: "POST", htu: "/api/auth/..", iat: now }     │
-│    Signed with: client's PRIVATE key                                        │
+│  1. Key material                                                            │
+│  ──────────────                                                             │
+│  DPoPKeyManager.generateAndStoreKeyPair()                                    │
+│    KeyPairGenerator("Ed25519")                                              │
+│    public JWK  -> dpop_keys.public_key_jwk                                   │
+│    private JWK -> dpop_keys.private_key_jwk   (server only, never exposed)   │
+│    thumbprint  -> dpop_keys.public_key_thumbprint  (RFC 7638)               │
+│    token       -> dpop_keys.access_token / admin_token                      │
 │                                                                             │
-│  POST /api/auth/discord/callback                                            │
-│    Authorization: (none — this is the login)                                │
-│    DPoP: <proof JWT>                                                        │
-│    Body: { code: "discord_oauth_code" }                                     │
+│  2. Request-bound proof (per HTTP request)                                  │
+│  ────────────────────────────────────────                                    │
+│  SessionAuthenticationService.signInternalProof(keyId, method, uri, token)  │
+│    payload { jti: UUID, htm: METHOD, htu: requestURL,                        │
+│              iat: epochSecond,                                              │
+│              ath: base64url(SHA-256(token)) }                               │
+│    header  { typ: "dpop+jwt", alg: "EdDSA", jwk: publicJwk }                │
+│    signed with the stored Ed25519 private key (EdDSA)                       │
 │                                                                             │
-│  Server validates proof → extracts JWK thumbprint (RFC 7638)                │
-│  Server generates JWT with cnf.jkt = thumbprint                             │
-│  Server binds: tokenBindings[jwt] = thumbprint                              │
-│  Response: { token: "...", token_type: "DPoP" }                             │
+│  3. Validation — DPoPService.validateProofForResource                       │
+│  ──────────────────────────────────────────────────────                      │
+│    ✓ EdDSA signature over the stored public key                             │
+│    ✓ header alg is exactly "EdDSA"                                          │
+│    ✓ htm matches the request method                                         │
+│    ✓ htu matches host + port + path (scheme dropped for proxies)            │
+│    ✓ |iat - now| <= 60 s                                                    │
+│    ✓ jti unused: usedJtis.putIfAbsent(keyId + ":" + jti, iat + 60s)         │
+│    ✓ ath == base64url(SHA-256(accessToken))                                 │
+│    → returns the stored thumbprint                                          │
 │                                                                             │
-│  2. Protected Resource Access                                               │
-│  ────────────────────────────                                               │
-│  For EVERY request, client creates fresh DPoP proof:                        │
-│    Payload: { jti: new_unique, htm: "GET", htu: "/api/guilds/...",          │
-│               iat: now, ath: SHA256(access_token) }                         │
+│  4. Binding                                                                 │
+│  ──────────                                                                 │
+│    cnf.jkt of the access token == the proof thumbprint                      │
+│    token sub == dpop_keys.user_id                                           │
+│    → Authentication(discordUserId, [DPOP_VERIFIED])                         │
 │                                                                             │
-│  GET /api/guilds/123/settings                                               │
-│    Authorization: DPoP <access_token>                                       │
-│    DPoP: <fresh proof JWT>                                                  │
+│  5. Revocation                                                              │
+│  ──────────────                                                             │
+│  Logout / rotation set is_active = false on the key row.                    │
+│  There is no in-memory tokenBindings map.                                   │
 │                                                                             │
-│  Server validates:                                                          │
-│    ✓ Proof signature valid (client's public key)                            │
-│    ✓ jti not replayed (ConcurrentHashMap cache, 5min window)                │
-│    ✓ htm matches request method                                             │
-│    ✓ htu matches request URI (path-only fallback for reverse proxy)         │
-│    ✓ iat within 5 minutes, not future (30s clock skew tolerance)            │
-│    ✓ ath = SHA-256(access_token)                                            │
-│    ✓ JWK thumbprint matches token binding                                   │
-│                                                                             │
-│  3. Logout                                                                  │
-│  ─────────                                                                  │
-│  POST /api/auth/logout → revokeTokenBinding(token)                          │
-│                                                                             │
-│  Implementation: DPoPService.java (544 lines)                               │
-│  ├── validateProofForTokenRequest() — no ath required                       │
-│  ├── validateProofForResource() — ath required                              │
-│  ├── bindTokenToThumbprint() / revokeTokenBinding()                         │
-│  ├── JTI replay cache with cleanup thread (5-min intervals)                 │
-│  ├── JWK → PublicKey conversion (RSA + EC P-256/P-384/P-521)                │
-│  └── JWK thumbprint calculation (RFC 7638, SHA-256)                         │
-│                                                                             │
-│  Enforced in: JwtAuthenticationFilter.java                                  │
-│  ├── DPoP-bound token + Bearer scheme → 401 "use DPoP scheme"               │
-│  ├── DPoP scheme + no proof header → 401 "missing proof"                    │
-│  ├── DPoP proof invalid → 401 with specific error                           │
-│  └── DPoP proof valid → grants DPOP_VERIFIED authority                      │
+│  Implementation                                                             │
+│  ├── DPoPKeyManager.java       Ed25519 keygen, persistence, proof signing   │
+│  ├── DPoPService.java          proof verification, single-use jti ledger     │
+│  ├── SessionAuthenticationService.java  cookie → proof mint → validate       │
+│  ├── DPoPController.java       legacy key management endpoints (see below)  │
+│  └── JwtAuthenticationFilter.java       rejects Authorization headers        │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The `/api/dpop/*` endpoints (`/key`, `/public-key`, `/sign`, `/thumbprint`,
+`/key` DELETE, `/keys` DELETE) remain for compatibility and are excluded from
+the authentication filter. They are not part of the browser request path: the
+Vue client never calls them (`createDPoPProof()` is a no-op stub) and the
+private key never leaves the server.
+
 See: [DPoPFlow.mermaid](./DPoPFlow.mermaid)
 
-### Admin Authentication (Mutual RSA)
+### Admin Authentication (Mutual)
 
-Each admin has their own RSA keypair. Private keys never leave the browser.
+The server proves its identity with Ed25519; each admin proves theirs with
+their own RSA keypair. The admin's private key is used in the browser and never
+transmitted.
 
 ```
-1. Login with Discord OAuth → User JWT
-2. GET /api/admin/challenge → Pudel signs nonce with its private key
-3. Admin signs nonce with their private key (Web Crypto API, in browser)
-4. POST /api/admin/auth/mutual → Pudel verifies with admin's public key from DB
-5. If valid → Admin JWT (1-hour session)
+1. Discord OAuth login (cookie session required)
+2. GET  /api/admin/check             → whitelist / enabled / hasPublicKey
+3. GET  /api/admin/challenge         → { challengeId, nonce, timestamp, expiry, signature }
+                                      signature = EdDSA JWT over the nonce,
+                                      sub = pudel-admin-challenge, TTL 60 s
+4. (optional) GET /api/admin/public-key → verify Pudel's signature (algorithm EdDSA)
+5. Admin signs the nonce: SHA256withRSA(nonce, adminPrivateKey), Base64
+6. POST /api/admin/auth/mutual { challengeId, signature }
+      → challenge must exist and not be expired (single use)
+      → admin_whitelist lookup by dpop_keys.user_id; entry enabled + public key present
+      → RSA verify
+      → AdminJWT = generateDPoPBoundToken("pudel-admin-session", claims, thumbprint)
+        claims: sessionId, discordUserId, discordUsername, adminRole,
+                canModify, canManageAdmins   · TTL 1 hour
+      → stored in dpop_keys.admin_token; NOT returned in the response body
+      → Set-Cookie pudel-swagger-session (HttpOnly, SameSite=Lax, 1 h) for Swagger UI
+7. Admin endpoints resolve the session from dpop_keys.admin_token for the
+   current browser key (validateAdminSession); the Authorization header is ignored
+8. Live logs: native WebSocket /ws/admin/logs, handshake authenticated by
+   AdminLogHandshakeInterceptor (cookie → admin_token → sub/expiry), restricted
+   to pudel.cors.allowed-origins
+9. POST /api/admin/logout → dpop_keys.admin_token = NULL (browser session survives)
 ```
+
+The legacy OAuth admin login endpoints were **removed**. They remain
+permit-listed in `SecurityConfiguration` for backward compatibility but have no
+controller mapping, so requests to them return 404 (not 410).
 
 See: [AdminMutualAuth.mermaid](./AdminMutualAuth.mermaid)
 
 ### Token Types
 
-| Token | Scheme | Subject | Duration | Binding | Purpose |
-|-------|--------|---------|----------|---------|---------|
-| User JWT | `Bearer` | `{discordUserId}` | 7 days | None | Dashboard access |
-| User JWT (DPoP) | `DPoP` | `{discordUserId}` | 7 days | JWK thumbprint (`cnf.jkt`) | Theft-protected dashboard |
-| Admin JWT | `Bearer` | `pudel-admin-session` | 1 hour | None | Admin panel access |
+All server-issued tokens are EdDSA-signed. None of them are handed to the SPA
+as a usable credential.
+
+| Token | Subject | Duration | Storage | Binding | Purpose |
+|-------|---------|----------|---------|---------|---------|
+| Session access JWT | `{discordUserId}` | 7 days (`JWT_EXPIRATION`) | `dpop_keys.access_token` | `cnf.jkt` = session thumbprint | Server-side user identity per cookie |
+| Admin JWT | `pudel-admin-session` | 1 hour | `dpop_keys.admin_token` | `cnf.jkt` = session thumbprint | Admin panel authorisation |
+| Swagger session JWT | `pudel-swagger-session` | 1 hour | `pudel-swagger-session` cookie | SameSite=Lax cookie | Swagger UI / OpenAPI docs |
+| Swagger query token | `pudel-swagger-query` | 30 seconds | Response body (`?swaggerToken=`) | Opt-in only | Non-browser clients; off by default |
+| Admin challenge JWT | `pudel-admin-challenge` | 60 seconds | In-memory `pendingChallenges` | — | Server identity proof |
 
 ### Admin Roles
 

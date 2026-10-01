@@ -112,16 +112,19 @@ Pudel implements a layered security model with multiple authentication mechanism
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
-| **User Auth** | Discord OAuth2 → RSA-signed JWT (7-day expiry) | Dashboard and API access |
-| **DPoP (RFC 9449)** | Proof-of-Possession token binding | Prevents stolen token reuse |
-| **Admin Auth** | Mutual RSA challenge-response (1-hour session) | Admin panel access with per-admin keypairs |
+| **Browser Session** | AES-GCM encrypted `HttpOnly`/`Secure`/`SameSite=Strict` cookie | The SPA's only credential |
+| **User Auth** | Discord OAuth2 → Ed25519-signed (EdDSA) DPoP-bound JWT held server-side (7-day expiry) | Dashboard and API access |
+| **DPoP (RFC 9449)** | Server-minted, single-use Ed25519 proof per request | Prevents stolen token/cookie reuse |
+| **Admin Auth** | Ed25519 server challenge + RSA admin signature (1-hour session) | Admin panel access with per-admin keypairs |
 
 ### Token Security
 
-- **RSA-signed JWTs** — Tokens are signed with the server's RSA-4096 private key and verified with the public key
-- **DPoP binding** — Optional cryptographic binding of tokens to the client's keypair; even if a JWT is intercepted, it cannot be used without the client's private key
-- **JTI replay protection** — Each DPoP proof includes a unique `jti` claim with a 5-minute deduplication window
-- **Short-lived admin sessions** — Admin JWTs expire after 1 hour
+- **Ed25519-signed tokens** — All server-issued JWTs use `EdDSA` (Ed25519); `keys/pv.key` signs and `keys/pb.key` verifies
+- **No client-side bearer token** — The browser only holds an encrypted cookie; JWTs live in `dpop_keys`. `Authorization` headers are rejected with 401
+- **Server-minted DPoP proofs** — Every authenticated request gets a fresh `EdDSA` proof over `{ jti, htm, htu, iat, ath }`, minted and verified inside the BFF; the proof never reaches the SPA
+- **JTI replay protection** — Single-use `jti` ledger keyed per session key id with a 60-second window
+- **Token binding** — Tokens carry `cnf.jkt` (RFC 7638 thumbprint); a proof minted with a different key cannot satisfy the check
+- **Short-lived admin sessions** — Admin JWTs expire after 1 hour and are cleared on logout
 
 ### Data Isolation
 
@@ -148,16 +151,17 @@ The following secrets **must** be kept confidential and **never** committed to v
 |--------|---------------------|-------------|
 | Discord Bot Token | `DISCORD_BOT_TOKEN` | Full access to the bot's Discord account |
 | Database Password | `POSTGRES_PASSWORD` | PostgreSQL database credentials |
-| JWT Private Key | `JWT_PRIVATE_KEY_PATH` | RSA private key for signing JWTs |
+| JWT Private Key | `JWT_PRIVATE_KEY_PATH` | Ed25519 private key (PKCS#8 PEM) for signing JWTs |
+| Session Cookie Key | `SESSION_KEY` / `SESSION_KEYFILE` | AES-256 key material for the encrypted session cookie |
 | Admin Public Key | `PUDEL_ADMIN_OWNER_PUBLIC_KEY_PATH` | Owner's RSA public key for admin auth |
 
 ### Recommendations
 
-1. **Rotate JWT keys** periodically — Generate new RSA keypairs and redeploy
+1. **Rotate JWT keys** periodically — Generate a new Ed25519 keypair and redeploy (rotating invalidates every issued token)
 2. **Use strong database passwords** — Minimum 32 characters, randomly generated
 3. **Restrict database access** — Only allow connections from the application host
 4. **Run behind a reverse proxy** — Use Nginx or Traefik with TLS termination
-5. **Enable DPoP** — Clients should use DPoP token binding for theft-protected sessions
+5. **Do not weaken the session cookie** — keep it `Secure` and `SameSite=Strict`; require HTTPS end to end
 6. **Restrict Swagger UI in production** — Set `SWAGGER_ENABLED=false` or limit access via firewall
 7. **Keep Ollama local** — Ollama API must be bound to localhost only (127.0.0.1)
 8. **Secure the `keys/` directory** — Restrict file permissions (`chmod 600` on key files)
@@ -213,7 +217,7 @@ We actively monitor dependencies for known vulnerabilities (CVEs). If you discov
 
 ### Discord OAuth
 
-- OAuth tokens received from Discord are exchanged for Pudel-issued JWTs; Discord tokens are not stored long-term
+- OAuth tokens received from Discord are exchanged for Pudel-issued JWTs; Discord tokens are stored server-side in the `users` table and refreshed only when within 300 s of expiry
 - The bot requires only the scopes necessary for operation (`identify`, `guilds`)
 
 ---

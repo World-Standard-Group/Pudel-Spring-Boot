@@ -10,13 +10,59 @@ http://localhost:8080/api
 
 ## Authentication
 
-Most endpoints require JWT authentication:
+Pudel is a **cookie-only BFF**. The browser holds exactly one credential: an
+`HttpOnly`, `Secure`, `SameSite=Strict` AES-GCM encrypted cookie named
+`pudel_session` (configurable via `SESSION_NAME`). Its plaintext is an opaque
+database key id — never a token, never the key itself.
+
+There is **no `Authorization` header** in the normal flow:
 
 ```
-Authorization: Bearer <jwt_token>
+JwtAuthenticationFilter
+    Any Authorization header present → 401
+      { "error": "invalid_token",
+        "error_description": "Authorization headers are not accepted; use the encrypted session cookie" }
 ```
 
-Obtain tokens via Discord OAuth callback.
+So requests are made with `credentials: include` (cookies), for example:
+
+```bash
+curl -c jar.txt https://host/api/session/bootstrap
+curl -b jar.txt https://host/api/auth/me
+```
+
+On every authenticated request the BFF signs a fresh single-use Ed25519 DPoP
+proof for the request and validates it in the same pass, then exposes only the
+Discord user id to Spring Security with the `DPOP_VERIFIED` authority.
+
+**HTTPS is required.** The cookie is `Secure` and will not be sent over plain
+HTTP.
+
+---
+
+## Session Endpoints
+
+### GET /api/session/bootstrap
+
+Create or reuse the encrypted browser session. Public.
+
+**Response:**
+```json
+{
+  "ready": true,
+  "expiresAt": 1788540000000,
+  "maxAgeSeconds": 604800
+}
+```
+
+No key id or token is returned.
+
+### POST /api/session/rotate
+
+Force a fresh Ed25519 browser key and cookie. Tokens bound to the previous key
+id stop working.
+
+**Response:** `{ "ready": true, "expiresAt": 1788540000000 }`
 
 ---
 
@@ -24,7 +70,8 @@ Obtain tokens via Discord OAuth callback.
 
 ### POST /api/auth/discord/callback
 
-Exchange Discord OAuth code for JWT token.
+Exchange the Discord authorization code. Requires an existing browser session
+cookie. Public.
 
 **Request:**
 ```json
@@ -37,34 +84,71 @@ Exchange Discord OAuth code for JWT token.
 **Response:**
 ```json
 {
-  "token": "eyJhbGciOiJSUzI1NiJ9...",
+  "accessToken": null,
   "user": {
     "id": "152140348980723712",
     "username": "Username",
     "avatar": "avatar_hash"
-  }
+  },
+  "tokenType": "COOKIE"
 }
 ```
 
+`accessToken` is always `null`: the DPoP-bound JWT is stored server-side in the
+`dpop_keys` row and never sent to the SPA.
+
+### POST /api/auth/refresh
+
+Re-issue the server-held token using only the cookie; also refreshes the Discord
+token when it expires within 300 s. Public.
+
+**Response:** same shape as the callback, `{ "accessToken": null, "user": {...}, "tokenType": "COOKIE" }`
+
+### GET /api/auth/me
+
+Restore the user after a page refresh using only the cookie.
+
+**Auth:** browser session required (the cookie)
+**Response:** `UserDto`
+
+### POST /api/auth/logout
+
+Deactivate the session key row (`dpop_keys.is_active = false`) and clear the
+cookie. Public.
+
+**Response:** `{ "message": "Logged out successfully" }`
+
 ### GET /api/auth/user/guilds
 
-Get all guilds for authenticated user.
+Get all guilds for the authenticated user (admin-permission guilds only, split
+into `managed` and `available`).
 
-**Auth:** Required
+**Auth:** browser session required
 
 **Response:**
 ```json
-[
-  {
-    "id": "123456789",
-    "name": "My Server",
-    "icon": "icon_hash",
-    "owner": true,
-    "permissions": 8,
-    "hasBot": true
-  }
-]
+{
+  "guilds": [
+    {
+      "id": "123456789",
+      "name": "My Server",
+      "icon": "icon_hash",
+      "owner": true,
+      "permissions": 8,
+      "hasBot": true
+    }
+  ],
+  "managed": [],
+  "available": [],
+  "managedCount": 0,
+  "availableCount": 1,
+  "total": 1
+}
 ```
+
+### GET /api/auth/user/guilds/{guildId}
+
+Guild detail plus its settings for a guild the user belongs to.
 
 ---
 
@@ -232,13 +316,13 @@ List all enabled plugins on this instance.
 
 Enable a plugin globally.
 
-**Auth:** Required (admin RSA auth)
+**Auth:** browser session + admin session
 
 ### POST /api/admin/plugins/{name}/disable
 
 Disable a plugin globally.
 
-**Auth:** Required (admin RSA auth)
+**Auth:** browser session + admin session
 
 ### Guild-Level Plugin Control
 
@@ -403,7 +487,7 @@ All errors return a consistent format:
   "error": "Error type",
   "message": "Human readable message",
   "timestamp": "2025-01-01T00:00:00Z",
-  "path": "/api/endpoint"
+  "path": "/api/auth/me"
 }
 ```
 
@@ -424,20 +508,32 @@ All errors return a consistent format:
 
 ## Admin API (Self-Hosted)
 
-The Admin API provides endpoints for managing self-hosted Pudel instances using **Mutual RSA Authentication**. Each admin has their own RSA keypair.
+The Admin API is layered on the same cookie session. Pudel proves its identity
+with an **Ed25519** challenge signature; each admin proves theirs with their own
+**RSA** keypair. The resulting AdminJWT is DPoP-bound to the browser session key
+and stored in `dpop_keys.admin_token` — it is **not** returned to the browser.
 
-### Authentication Flow (Mutual RSA)
+### Authentication Flow (Mutual)
 
-1. Login with Discord OAuth first (get User JWT)
+1. Log in with Discord first (a valid browser session cookie is required).
 2. Request a challenge: `GET /api/admin/challenge`
-3. (Optional) Verify Pudel's signature with Pudel's public key
-4. Sign the challenge nonce with your RSA private key (client-side)
-5. Submit signed challenge: `POST /api/admin/auth/mutual`
-6. Use returned AdminJWT for subsequent requests
+   (server signs the nonce with EdDSA, valid for 60 seconds, single use)
+3. *(Optional)* Verify Pudel's signature with `GET /api/admin/public-key`
+   (returns `algorithm: "EdDSA"`).
+4. Sign the challenge nonce with your RSA private key (in the browser):
+   `Base64(SHA256withRSA(nonce, privateKey))`
+5. Submit: `POST /api/admin/auth/mutual` with `{ challengeId, signature }`
+6. On success an AdminJWT (1 hour) is written to `dpop_keys.admin_token` and a
+   `pudel-swagger-session` cookie is set for Swagger UI access.
+
+Every admin request authenticates with the ordinary session cookie;
+`validateAdminSession` loads the admin token from the database for that browser
+key, verifies the EdDSA signature, and requires `sub = pudel-admin-session` with
+an unexpired `exp`. The `Authorization` header is ignored for admin endpoints.
 
 ### GET /api/admin/public-key
 
-Get Pudel's public key for verifying server identity.
+Pudel's public key for verifying challenge signatures.
 
 **Auth:** Not required
 
@@ -445,14 +541,14 @@ Get Pudel's public key for verifying server identity.
 ```json
 {
   "publicKey": "-----BEGIN PUBLIC KEY-----\n...",
-  "algorithm": "RSA",
+  "algorithm": "EdDSA",
   "usage": "Use this key to verify challenge signatures from Pudel"
 }
 ```
 
 ### GET /api/admin/challenge
 
-Request an authentication challenge. Pudel signs this with its private key.
+Request an authentication challenge, signed by Pudel with its Ed25519 key.
 
 **Auth:** Not required
 
@@ -461,18 +557,20 @@ Request an authentication challenge. Pudel signs this with its private key.
 {
   "challengeId": "uuid",
   "nonce": "uuid",
-  "timestamp": 1738540800000,
-  "expiry": 1738541100000,
-  "signature": "eyJhbGciOiJSUzI1NiJ9...",
-  "message": "Verify this signature with Pudel's public key, then sign the nonce with your private key"
+  "timestamp": 1788540000000,
+  "expiry": 1788540060000,
+  "signature": "eyJhbGciOiJFZERTQSJ9...",
+  "message": "Verify this signature with Pudel's public key, then submit your Discord user ID"
 }
 ```
 
+Challenges expire after **60 seconds** and are single use.
+
 ### GET /api/admin/check
 
-Check if current Discord user is an admin.
+Check if the current Discord user is a whitelisted admin.
 
-**Auth:** User JWT required (Discord OAuth)
+**Auth:** browser session required
 
 **Response:**
 ```json
@@ -489,15 +587,15 @@ Check if current Discord user is an admin.
 
 ### POST /api/admin/auth/mutual
 
-Authenticate with Mutual RSA - submit signed challenge.
+Authenticate with Mutual RSA — submit the signed challenge.
 
-**Auth:** User JWT required (Discord OAuth)
+**Auth:** browser session required
 
 **Request:**
 ```json
 {
   "challengeId": "uuid-from-challenge",
-  "signature": "base64-encoded-rsa-signature-of-nonce"
+  "signature": "base64-encoded-sha256withrsa-signature-of-nonce"
 }
 ```
 
@@ -506,42 +604,47 @@ Authenticate with Mutual RSA - submit signed challenge.
 {
   "success": true,
   "message": "Mutual authentication successful",
-  "adminToken": "eyJhbGciOiJSUzI1NiJ9...",
   "discordUserId": "123456789012345678",
   "discordUsername": "YourUsername",
   "adminRole": "OWNER",
   "canModify": true,
   "canManageAdmins": true,
-  "expiresAt": 1738627200000,
-  "expiresIn": 86400
+  "expiresAt": 1788543600000,
+  "expiresIn": 3600
 }
 ```
 
-### POST /api/admin/auth ⚠️ DEPRECATED
-
-**Status:** Returns `410 GONE`
-
-This endpoint has been removed. Use `/api/admin/auth/mutual` instead.
+There is deliberately **no `adminToken` field** in the body.
 
 ### POST /api/admin/logout
 
-Invalidate admin session.
+Clear the admin token for the current browser key; the browser session itself
+stays alive.
 
-**Auth:** AdminJWT required
+**Auth:** admin session required
+**Response:** `{ "message": "Logged out successfully" }`
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Logged out successfully"
-}
-```
+### POST /api/admin/swagger/authorize / DELETE /api/admin/swagger/authorize
+
+Issue (or clear) the `pudel-swagger-session` HttpOnly cookie that unlocks
+`/swagger-ui.html` and `/v3/api-docs`. Requires a valid admin session.
+
+With `pudel.swagger.allow-query-token=true` the POST response additionally
+carries a 30-second `queryToken` — off by default because URLs leak via logs,
+history, proxies and Referer headers.
+
+### POST /api/admin/auth ⚠️ REMOVED
+
+The legacy OAuth admin login endpoints were **removed**. They are still
+permit-listed in `SecurityConfiguration` for backward compatibility, but no
+controller maps them, so they return **404**, not 410. Use
+`/api/admin/auth/mutual`.
 
 ### GET /api/admin/status
 
 Get system status.
 
-**Auth:** AdminJWT required
+**Auth:** browser session + admin session
 
 **Response:**
 ```json
@@ -576,7 +679,7 @@ Get system status.
 
 List all plugins.
 
-**Auth:** AdminJWT required
+**Auth:** browser session + admin session
 
 **Response:**
 ```json
@@ -603,7 +706,7 @@ List all plugins.
 
 Upload a plugin JAR file.
 
-**Auth:** AdminJWT required (ADMIN+ role)
+**Auth:** browser session + admin session (ADMIN+ role)
 
 **Request:** `multipart/form-data` with `file` field
 
@@ -622,31 +725,31 @@ Upload a plugin JAR file.
 
 Enable a plugin.
 
-**Auth:** AdminJWT required (ADMIN+ role)
+**Auth:** browser session + admin session (ADMIN+ role)
 
 ### POST /api/admin/plugins/{name}/disable
 
 Disable a plugin.
 
-**Auth:** AdminJWT required (ADMIN+ role)
+**Auth:** browser session + admin session (ADMIN+ role)
 
 ### POST /api/admin/plugins/{name}/reload
 
 Reload a plugin.
 
-**Auth:** AdminJWT required (ADMIN+ role)
+**Auth:** browser session + admin session (ADMIN+ role)
 
 ### DELETE /api/admin/plugins/{name}
 
 Remove a plugin (unload and delete JAR).
 
-**Auth:** AdminJWT required (ADMIN+ role)
+**Auth:** browser session + admin session (ADMIN+ role)
 
 ### GET /api/admin/whitelist
 
 List admin whitelist entries.
 
-**Auth:** AdminJWT required (OWNER role only)
+**Auth:** browser session + admin session (OWNER role only)
 
 **Response:**
 ```json
@@ -673,7 +776,7 @@ List admin whitelist entries.
 
 Add a Discord user to admin whitelist with their RSA public key.
 
-**Auth:** AdminJWT required (OWNER role only)
+**Auth:** browser session + admin session (OWNER role only)
 
 **Request:**
 ```json
@@ -692,7 +795,7 @@ Add a Discord user to admin whitelist with their RSA public key.
 
 Update an admin whitelist entry.
 
-**Auth:** AdminJWT required (OWNER role only)
+**Auth:** browser session + admin session (OWNER role only)
 
 **Request:**
 ```json
@@ -708,38 +811,45 @@ Update an admin whitelist entry.
 
 Remove a Discord user from admin whitelist.
 
-**Auth:** AdminJWT required (OWNER role only)
+**Auth:** browser session + admin session (OWNER role only)
 
 ---
 
 ## Rate Limiting
 
-| Endpoint Type | Limit |
-|---------------|-------|
+There is no rate limiter in the API today — the documented limits below are
+**not enforced** and no `X-RateLimit-*` headers are emitted. Put a reverse
+proxy in front of the instance if you need them.
+
+| Endpoint Type | Limit (unenforced) |
+|---------------|--------------------|
 | Authentication | 10/min |
 | Read operations | 60/min |
 | Write operations | 30/min |
 
-Headers returned:
+---
+
+## WebSocket
+
 ```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 55
-X-RateLimit-Reset: 1609459200
+wss://<host>/ws/admin/logs
 ```
+
+A single native WebSocket endpoint streams admin log entries. It is
+authenticated during the handshake by `AdminLogHandshakeInterceptor`: the
+session cookie is read, `dpop_keys.admin_token` is loaded and validated
+(`sub = pudel-admin-session`, not expired), and the origin must be in
+`pudel.cors.allowed-origins`. A failed handshake is rejected with 401.
+
+There is no STOMP broker and no `/topic/...` destinations. Log history and
+statistics are available over REST:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/logs?count=500&level=INFO` | Recent entries (max 5000) plus stats |
+| GET | `/api/admin/logs/stats` | Aggregated log statistics |
+| DELETE | `/api/admin/logs` | Clear the in-memory log buffer |
 
 ---
 
-## WebSocket (Future)
-
-```
-ws://localhost:8080/ws
-```
-
-Topics:
-- `/topic/bot/status` - Bot status updates
-- `/topic/guild/{id}/chat` - Guild chat events
-- `/topic/plugins` - Plugin status changes
-
----
-
-*API Version: 2.1.1*
+*API Version: 2.5.0*

@@ -194,7 +194,7 @@ pudel:
 pudel:
   security:
     jwt:
-      # JWT signing key file (RSA)
+      # Ed25519 signing key file (PKCS#8 PEM)
       private-key-path: keys/jwt_pv.key
       public-key-path: keys/jwt_pb.key
       

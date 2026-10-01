@@ -1,81 +1,122 @@
-%% Pudel Authentication Flow v2.5.0
-%% OAuth2 + Optional DPoP Binding
+%% Pudel Authentication Flow v2.5.0 (cookie-only BFF)
+%% No token, key id, or proof ever reaches the browser. Only the AES-GCM
+%% encrypted HttpOnly session cookie crosses the wire, and the DPoP proof is
+%% minted and validated inside the BFF on every request.
 
 sequenceDiagram
+    autonumber
     participant User as User
     participant Vue as Vue Frontend
     participant API as Pudel API
-    participant JWT as JWT Util (RSA)
-    participant DPoP as DPoPService
-    participant Discord as Discord OAuth2
+    participant Filter as JwtAuthenticationFilter
+    participant Cookie as SessionCookieService
+    participant KeyMgr as DPoPKeyManager
     participant DB as PostgreSQL
+    participant Discord as Discord OAuth2
+    participant DPoP as DPoPService
 
-    Note over User,DB: OAuth2 Login Flow (Standard or DPoP-Enhanced)
+    Note over User,Discord: Step 0: Bootstrap the encrypted browser session
+
+    User->>Vue: Open the dashboard
+    Vue->>API: GET /api/session/bootstrap<br/>credentials: include
+    API->>Cookie: readKeyId(request)
+    alt Existing cookie resolves to an active key row
+        Cookie-->>API: keyId
+    else No cookie / expired / unknown key
+        API->>KeyMgr: createSessionKey()
+        KeyMgr->>KeyMgr: Ed25519 KeyPairGenerator
+        KeyMgr->>DB: INSERT dpop_keys (user_id=anonymous,<br/>public and private JWK, thumbprint, expires_at)
+        KeyMgr-->>API: keyId
+    end
+    API->>Cookie: writeCookie(response, keyId, expiresAt)
+    Note right of Cookie: HttpOnly, Secure, SameSite=Strict, path=/<br/>value = base64url(iv).base64url(AES-GCM ciphertext)<br/>plaintext = { v:1, keyId, exp }
+    API-->>Vue: 200 { ready, expiresAt, maxAgeSeconds }
+    Note right of Vue: No keyId, no JWT, nothing stored in localStorage
+
+    Note over User,Discord: Step 1: Discord OAuth2 login
 
     User->>Vue: Click "Login with Discord"
     Vue->>Discord: Redirect to OAuth2 authorize
-    Discord->>User: Show consent screen
+    Discord->>User: Consent screen
     User->>Discord: Approve
     Discord->>Vue: Redirect with code
+    Vue->>API: POST /api/auth/discord/callback<br/>Cookie: pudel_session=..., Body: { code, redirectUri }
 
-    Vue->>API: POST /api/auth/discord/callback
-    Note right of Vue: Body: { code, redirectUri }<br/>Optional: DPoP header (proof JWT)
+    API->>Cookie: readKeyId(httpRequest)
+    API->>KeyMgr: findActiveSession(keyId)
+    KeyMgr->>DB: SELECT ... WHERE key_id = ? AND is_active<br/>AND expires_at > now()
+    alt No active browser session
+        API-->>Vue: 401 { error: "Missing or invalid browser session" }
+    end
 
     API->>Discord: Exchange code for tokens
-    Discord-->>API: access_token, refresh_token
-
+    Discord-->>API: access_token, refresh_token, expires_in
     API->>Discord: GET /users/@me
     Discord-->>API: User info (id, username, avatar)
+    API->>DB: Upsert users + user_guilds, store Discord tokens
+    API->>KeyMgr: getPublicKeyThumbprint(browserKeyId)
+    API->>API: JwtUtil.generateDPoPBoundToken(userId,<br/>{ username }, thumbprint)
+    Note right of API: EdDSA signed, claims: sub, iat, exp,<br/>cnf = { "jkt": "<RFC 7638 thumbprint>" }
+    API->>KeyMgr: bindSessionKey(browserKeyId, userId, jwt)
+    KeyMgr->>DB: UPDATE dpop_keys SET user_id, access_token
+    API-->>Vue: 200 { accessToken: null, user: {...}, tokenType: "COOKIE" }
 
-    API->>DB: Find or create user
-    DB-->>API: User entity
+    Note over User,Discord: Step 2: Protected resource request (no client credential)
 
-    alt DPoP Header Present
-        API->>DPoP: validateProofForTokenRequest(proof)
-        DPoP-->>API: ✓ thumbprint
-        API->>JWT: generateDPoPBoundToken(userId, claims, thumbprint)
-        Note right of JWT: JWT contains cnf.jkt = thumbprint
-        JWT-->>API: DPoP-bound JWT
-        API->>DPoP: bindTokenToThumbprint(jwt, thumbprint)
-        API-->>Vue: { token, user, token_type: "DPoP" }
-    else No DPoP Header
-        API->>JWT: generateToken(userId, claims)
-        Note right of JWT: Standard Bearer JWT
-        JWT-->>API: Signed JWT token
-        API-->>Vue: { token, user, token_type: "Bearer" }
-    end
+    User->>Vue: Open guild settings
+    Vue->>Filter: GET /api/guilds/{guildId}/settings<br/>Cookie only - no Authorization header
 
-    Vue->>Vue: Store token in localStorage
+    Filter->>Filter: Authorization header present?
+    Note right of Filter: Any Authorization header is rejected outright:<br/>401 { "error": "invalid_token" }
 
-    Note over User,DB: Authenticated API Requests
+    Filter->>Cookie: readKeyId(request) - decrypt AES-GCM
+    Cookie-->>Filter: keyId
+    Filter->>KeyMgr: findActiveSession(keyId)
+    KeyMgr-->>Filter: DPoPKey row (access_token)
+    Filter->>Filter: JwtUtil.validateToken(accessToken)
+    Note right of Filter: EdDSA signature + exp verified with<br/>keys/pb.key (public)
 
-    User->>Vue: View guilds
+    Filter->>KeyMgr: signInternalProof(keyId, method, uri, token)
+    Note right of KeyMgr: payload = { jti, htm, htu, iat, ath }<br/>ath = base64url(SHA-256(accessToken))<br/>header = { typ: dpop-proof, alg: EdDSA, jwk }
+    KeyMgr-->>Filter: Signed internal proof
 
-    alt Bearer Token
-        Vue->>API: GET /api/guilds
-        Note right of Vue: Authorization: Bearer <token>
-    else DPoP Token
-        Vue->>Vue: Create fresh DPoP proof
-        Vue->>API: GET /api/guilds
-        Note right of Vue: Authorization: DPoP <token><br/>DPoP: <fresh proof JWT>
-    end
+    Filter->>DPoP: validateProofForResource(proof, method, uri, token, keyId)
+    Note right of DPoP: alg must be EdDSA / htm == method /<br/>htu == host and port and path / abs(iat - now) <= 60s /<br/>jti unused (per-keyId ledger) / ath == SHA-256(token)
+    DPoP-->>Filter: valid + thumbprint
 
-    API->>JWT: Validate JWT (RSA public key)
-    JWT-->>API: Valid / Invalid
+    Filter->>Filter: cnf.jkt of accessToken == proof thumbprint?<br/>token sub == dpop_keys.user_id?
+    Filter->>Filter: set auth = UsernamePasswordAuthenticationToken(userId,<br/>authorities = [DPOP_VERIFIED])<br/>request attr pudel.session.keyId = keyId
+    Filter-->>Vue: 200 + guild settings
 
-    alt Token Valid
-        API->>DB: Query user's guilds
-        DB-->>API: Guild list
-        API-->>Vue: { guilds: [...] }
-        Vue-->>User: Display guilds
-    else Token Invalid/Expired
-        API-->>Vue: 401 Unauthorized
-        Vue->>Vue: Redirect to login
-    end
+    Note over User,Discord: Step 3: Silent refresh (SPA reacts to one 401)
 
-    Note over User,DB: Logout
+    Vue->>API: POST /api/auth/refresh<br/>Cookie only
+    API->>Cookie: readKeyId(request)
+    API->>KeyMgr: findActiveSession(keyId)
+    API->>DB: Refresh Discord token if expiring within 300s
+    API->>KeyMgr: generateDPoPBoundToken(...) + storeAccessToken(keyId, jwt)
+    API-->>Vue: 200 { accessToken: null, user: {...}, tokenType: "COOKIE" }
+    Note right of Vue: One retry per request, on failure only<br/>non-sensitive UI state (user, admin_info) is cleared
 
-    Vue->>API: POST /api/auth/logout
-    Note right of Vue: Authorization: Bearer/DPoP <token>
-    API->>DPoP: revokeTokenBinding(token)
-    API-->>Vue: 200 OK
+    Note over User,Discord: Step 4: Restore after a page refresh
+
+    Vue->>API: GET /api/auth/me (Cookie only)
+    API->>KeyMgr: findActiveSession(keyId).access_token
+    API-->>Vue: 200 UserDto
+
+    Note over User,Discord: Step 5: Logout
+
+    Vue->>API: POST /api/auth/logout (Cookie only)
+    API->>KeyMgr: clearKeyPair(keyId)
+    KeyMgr->>DB: UPDATE dpop_keys SET is_active = false
+    API->>Cookie: clearCookie(response)
+    Note right of Cookie: HttpOnly, Secure, SameSite=Strict, Max-Age=0
+    API-->>Vue: 200 { message: "Logged out successfully" }
+
+    Note over User,Discord: Key rotation (explicit)
+
+    Vue->>API: POST /api/session/rotate
+    API->>KeyMgr: createSessionKey() - new Ed25519 key
+    API->>Cookie: writeCookie(new keyId)
+    API-->>Vue: 200 { ready, expiresAt }
+    Note right of API: Tokens bound to the old key id stop working

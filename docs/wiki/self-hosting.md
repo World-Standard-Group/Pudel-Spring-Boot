@@ -106,13 +106,24 @@ pudel:
     model: qwen3:8b
 ```
 
-### 7. Generate JWT Keys
+### 7. Generate Signing Keys
+
+All server-issued tokens (session, admin, swagger) are **Ed25519 / EdDSA**.
+Generating RSA keys here will fail at startup with
+`Failed to initialize JWT keys`.
 
 ```bash
-# Generate RSA key pair
-openssl genrsa -out keys/jwt_private.key 2048
-openssl rsa -in keys/jwt_private.key -pubout -out keys/jwt_public.key
+# Ed25519 key pair — names must match JWT_PRIVATE_KEY_PATH / JWT_PUBLIC_KEY_PATH
+openssl genpkey -algorithm ED25519 -out keys/pv.key
+openssl pkey -in keys/pv.key -pubout -out keys/pb.key
+
+chmod 600 keys/pv.key
+chmod 644 keys/pb.key
 ```
+
+The session cookie key (`SESSION_KEYFILE`, default `cookie.key`) is generated
+automatically on first start if it does not exist. Set `SESSION_KEY` to pin it
+from a passphrase instead.
 
 ### 8. Install Ollama (Optional)
 
@@ -130,7 +141,7 @@ ollama serve
 ### 9. Run Pudel
 
 ```bash
-java -jar pudel-core/target/pudel-core-2.4.0.jar \
+java -jar pudel-core/target/pudel-core-2.5.0.jar \
   --spring.profiles.active=local
 ```
 
@@ -325,10 +336,10 @@ The Admin Portal provides a web-based interface for managing your self-hosted Pu
 │  │  Admin  │                                          │  Pudel  │      │
 │  └────┬────┘                                          └────┬────┘      │
 │       │                                                    │           │
-│       │  1. Login with Discord OAuth                       │           │
+│       │  1. Login with Discord OAuth (HttpOnly cookie)     │           │
 │       │ ─────────────────────────────────────────────────► │           │
 │       │                                                    │           │
-│       │  2. Receive User JWT (contains discordUserId)      │           │
+│       │  2. Cookie session identifies the Discord user     │           │
 │       │ ◄───────────────────────────────────────────────── │           │
 │       │                                                    │           │
 │       │  3. Request Challenge                              │           │
@@ -336,7 +347,7 @@ The Admin Portal provides a web-based interface for managing your self-hosted Pu
 │       │ ─────────────────────────────────────────────────► │           │
 │       │                                                    │           │
 │       │  4. Challenge + Pudel's Signature                  │           │
-│       │     (signed with Pudel's PRIVATE key)              │           │
+│       │     (signed with Pudel's Ed25519 PRIVATE key)      │           │
 │       │ ◄───────────────────────────────────────────────── │           │
 │       │                                                    │           │
 │       │  5. (Optional) Verify Pudel's signature            │           │
@@ -351,11 +362,11 @@ The Admin Portal provides a web-based interface for managing your self-hosted Pu
 │       │     { challengeId, signature }                     │           │
 │       │ ─────────────────────────────────────────────────► │           │
 │       │                                                    │           │
-│       │              8. Extract discordUserId from JWT     │           │
-│       │              9. Lookup admin's PUBLIC key from DB  │           │
-│       │             10. Verify signature with admin's key  │           │
+│       │       8. dpop_keys.user_id -> discordUserId       │           │
+│       │       9. Lookup admin's PUBLIC key from DB        │           │
+│       │      10. SHA256withRSA verify with admin's key    │           │
 │       │                                                    │           │
-│       │ 11. AdminJWT (24-hour session token)               │           │
+│       │ 11. AdminJWT (1 hour) stored in dpop_keys         │           │
 │       │ ◄───────────────────────────────────────────────── │           │
 │       │                                                    │           │
 │  ┌────┴────┐                                          ┌────┴────┐      │
@@ -368,7 +379,9 @@ The Admin Portal provides a web-based interface for managing your self-hosted Pu
 - **Mutual Authentication**: Both parties prove their identity cryptographically
 - **Per-Admin Keys**: Each admin has their own RSA keypair
 - **Private Keys Never Leave**: Admin signs in browser, private key never transmitted
-- **Challenge Expiry**: 5-minute window prevents replay attacks
+- **Challenge Expiry**: 60-second window prevents replay attacks
+- **Server-Held Session**: the AdminJWT is DPoP-bound to the browser's Ed25519
+  key and stored in `dpop_keys.admin_token`; it never reaches browser JavaScript
 
 ### Setting Up Initial Owner
 
@@ -412,9 +425,14 @@ openssl rsa -in my_admin_pv.key -pubout -out my_admin_pb.key
 ```
 
 **For the owner (via Admin Portal or API):**
+
+Admin endpoints authenticate with the encrypted session cookie, so export a
+cookie jar first (`curl -c cookies.txt .../api/session/bootstrap`, complete the
+Discord login and the admin challenge with that jar), then reuse it:
+
 ```bash
 curl -X POST http://localhost:8080/api/admin/whitelist \
-  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -d '{
     "discordUserId": "987654321098765432",
@@ -442,7 +460,7 @@ curl -X POST http://localhost:8080/api/admin/whitelist \
 5. (Optional) Verify Pudel's signature to confirm server identity
 6. Upload or paste your **private key** to sign the challenge
 7. Click "Sign Challenge" - signing happens in your browser
-8. Submit the signature - if valid, receive 24-hour AdminJWT
+8. Submit the signature - if valid, a 1-hour admin session is opened server-side
 
 > ⚠️ **Your private key never leaves your browser.** The signing is done client-side using the Web Crypto API.
 
@@ -469,7 +487,7 @@ As an OWNER, you can manage other admins through the Admin Portal:
 **Update admin's public key:**
 ```bash
 curl -X PUT http://localhost:8080/api/admin/whitelist/987654321098765432 \
-  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -d '{
     "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nNEW_KEY_HERE...\n-----END PUBLIC KEY-----"
@@ -479,7 +497,7 @@ curl -X PUT http://localhost:8080/api/admin/whitelist/987654321098765432 \
 **Remove an admin:**
 ```bash
 curl -X DELETE http://localhost:8080/api/admin/whitelist/987654321098765432 \
-  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+  -b cookies.txt
 ```
 
 ### API Endpoints
@@ -488,21 +506,23 @@ curl -X DELETE http://localhost:8080/api/admin/whitelist/987654321098765432 \
 |--------|----------|-------------|------|------|
 | GET | `/api/admin/public-key` | Get Pudel's public key | No | - |
 | GET | `/api/admin/challenge` | Request authentication challenge | No | - |
-| GET | `/api/admin/check` | Check if user is admin (requires Discord JWT) | Discord JWT | - |
-| POST | `/api/admin/auth/mutual` | Authenticate with RSA signature | Discord JWT | - |
-| POST | `/api/admin/logout` | Invalidate session | AdminJWT | Any |
-| GET | `/api/admin/status` | Get system status | AdminJWT | Any |
-| GET | `/api/admin/plugins` | List all plugins | AdminJWT | Any |
-| GET | `/api/admin/plugins/files` | List plugin JAR files | AdminJWT | Any |
-| POST | `/api/admin/plugins/upload` | Upload plugin JAR | AdminJWT | ADMIN+ |
-| POST | `/api/admin/plugins/{name}/enable` | Enable plugin | AdminJWT | ADMIN+ |
-| POST | `/api/admin/plugins/{name}/disable` | Disable plugin | AdminJWT | ADMIN+ |
-| POST | `/api/admin/plugins/{name}/reload` | Reload plugin | AdminJWT | ADMIN+ |
-| DELETE | `/api/admin/plugins/{name}` | Remove plugin | AdminJWT | ADMIN+ |
-| GET | `/api/admin/whitelist` | List admin whitelist | AdminJWT | OWNER |
-| POST | `/api/admin/whitelist` | Add admin with public key | AdminJWT | OWNER |
-| PUT | `/api/admin/whitelist/{id}` | Update admin entry | AdminJWT | OWNER |
-| DELETE | `/api/admin/whitelist/{id}` | Remove admin | AdminJWT | OWNER |
+| GET | `/api/admin/check` | Check if user is admin | browser session | - |
+| POST | `/api/admin/auth/mutual` | Authenticate with RSA signature | browser session | - |
+| POST | `/api/admin/swagger/authorize` | Issue the Swagger UI cookie | browser + admin session | Any |
+| DELETE | `/api/admin/swagger/authorize` | Revoke Swagger UI access | browser session | Any |
+| POST | `/api/admin/logout` | Invalidate session | browser + admin session | Any |
+| GET | `/api/admin/status` | Get system status | browser + admin session | Any |
+| GET | `/api/admin/plugins` | List all plugins | browser + admin session | Any |
+| GET | `/api/admin/plugins/files` | List plugin JAR files | browser + admin session | Any |
+| POST | `/api/admin/plugins/upload` | Upload plugin JAR | browser + admin session | ADMIN+ |
+| POST | `/api/admin/plugins/{name}/enable` | Enable plugin | browser + admin session | ADMIN+ |
+| POST | `/api/admin/plugins/{name}/disable` | Disable plugin | browser + admin session | ADMIN+ |
+| POST | `/api/admin/plugins/{name}/reload` | Reload plugin | browser + admin session | ADMIN+ |
+| DELETE | `/api/admin/plugins/{name}` | Remove plugin | browser + admin session | ADMIN+ |
+| GET | `/api/admin/whitelist` | List admin whitelist | browser + admin session | OWNER |
+| POST | `/api/admin/whitelist` | Add admin with public key | browser + admin session | OWNER |
+| PUT | `/api/admin/whitelist/{id}` | Update admin entry | browser + admin session | OWNER |
+| DELETE | `/api/admin/whitelist/{id}` | Remove admin | browser + admin session | OWNER |
 
 ### Mutual Auth Request Body
 
@@ -519,16 +539,18 @@ curl -X DELETE http://localhost:8080/api/admin/whitelist/987654321098765432 \
 {
   "success": true,
   "message": "Mutual authentication successful",
-  "adminToken": "eyJhbGciOiJSUzI1NiJ9...",
   "discordUserId": "123456789012345678",
   "discordUsername": "YourUsername",
   "adminRole": "OWNER",
   "canModify": true,
   "canManageAdmins": true,
-  "expiresAt": 1738627200000,
-  "expiresIn": 86400
+  "expiresAt": 1788543600000,
+  "expiresIn": 3600
 }
 ```
+
+No `adminToken` is returned — the admin session is opened server-side and
+associated with your browser's session key.
 
 ### Generating RSA Keys
 
@@ -560,7 +582,7 @@ keytool -exportcert -alias admin -keystore admin.jks -rfc -file public.pem
 - ✅ Regularly rotate keys if compromised
 - ✅ Use MODERATOR role for view-only users
 - ✅ Audit admin whitelist regularly
-- ✅ AdminJWT tokens expire after 24 hours
+- ✅ Admin sessions expire after 1 hour and are revoked by clearing `dpop_keys.admin_token`
 - ❌ Never commit private keys to version control
 - ❌ Never transmit private keys over network
 - ❌ Don't reuse keys across different systems
@@ -681,8 +703,10 @@ spring:
 
 - [ ] Use strong database password
 - [ ] Keep bot token secret
-- [ ] Generate unique JWT RSA keys (2048-bit minimum)
-- [ ] Secure private key with restricted permissions (chmod 600)
+- [ ] Generate the Ed25519 signing key pair (`pv.key` / `pb.key`)
+- [ ] Secure the private key with restricted permissions (chmod 600)
+- [ ] Set `SESSION_KEY` or protect `SESSION_KEYFILE` (the cookie AES key)
+- [ ] Set `CORS_ALLOWED_ORIGINS` to your real dashboard origin(s)
 - [ ] Enable firewall (only expose 80/443)
 - [ ] Regular security updates
 - [ ] Use HTTPS for dashboard and API

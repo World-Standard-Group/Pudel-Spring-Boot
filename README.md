@@ -47,7 +47,7 @@ Pudel acts as a **personal maid/secretary** for Discord guilds — capable of na
 ### 🛡️ Enterprise Features
 - **Per-guild PostgreSQL schemas** for data isolation
 - **Plugin database access** — Isolated storage per plugin with **auto-migration from entity classes**
-- **RSA JWT authentication** for secure API access
+- **Ed25519 (EdDSA) signed tokens** with a cookie-only BFF: an AES-GCM encrypted `HttpOnly` session cookie, RFC 9449 DPoP proofs minted per request, and no token in browser JavaScript
 - **REST API** for external integrations
 - **Docker-ready** deployment with volume support for plugins
 
@@ -60,7 +60,7 @@ pudel/
 ├── pudel-api/      # Plugin Development Kit (MIT License)
 ├── pudel-core/     # Bot core (AGPLv3 + Plugin Exception)
 ├── plugins/        # Plugin JARs (hot-loadable)
-├── keys/           # RSA keys for JWT + mTLS client certs
+├── keys/           # Ed25519 JWT keys + admin RSA public key + mTLS certs
 ```
 
 See [ARCHITECTURE.md](docs/flowchart/architecture/ARCHITECTURE.md) for detailed system design.
@@ -120,9 +120,17 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 OLLAMA_ENABLED=true
 
-# JWT Keys
+# Signing Keys (Ed25519 — generate with:
+#   openssl genpkey -algorithm ED25519 -out keys/pv.key
+#   openssl pkey -in keys/pv.key -pubout -out keys/pb.key)
 JWT_PRIVATE_KEY_PATH=./keys/pv.key
 JWT_PUBLIC_KEY_PATH=./keys/pb.key
+JWT_EXPIRATION=604800000
+
+# Browser session cookie (AES-GCM)
+SESSION_NAME=pudel_session
+SESSION_KEY=            # passphrase; leave empty to generate SESSION_KEYFILE
+SESSION_KEYFILE=cookie.key
 ```
 
 ### 4. Run
@@ -149,14 +157,14 @@ All built-in commands follow the same `@Plugin` annotation pattern as plugins.
 
 > `/ai`, `/channel`, `/command` were merged into the `/settings` panel.
 
-### Text Commands (`pudel-core-text`)
+### Text Commands (`pudel-core`)
 
 | Command | Description |
 |---------|-------------|
 | `!ping` | Bot latency with rich embed |
 | `!help` | Paginated command listing (⏮ ◀ ▶ ⏭ navigation, 8 per page) |
 
-### Agent Tools (`pudel-core-tools`)
+### Agent Tools (`pudel-core`)
 
 14 AI agent tools registered via `AgentToolRegistry` — same standard as plugin tools. See [Agent System](docs/AGENT_SYSTEM.md).
 
