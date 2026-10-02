@@ -68,18 +68,31 @@ public class DPoPKey {
 
     /**
      * The public key in JWK format (stored as JSON string).
-     * Safe to share with frontend for DPoP proof creation.
+     * Safe for internal DPoP validation and included in signed proof headers.
      */
     @Column(name = "public_key_jwk", nullable = false, columnDefinition = "TEXT")
     private String publicKeyJwk;
 
     /**
      * The private key in JWK format (stored as JSON string).
-     * NEVER exposed to the frontend. Used only for signing DPoP proofs.
-     * Should be encrypted at rest by database or application-level encryption.
+     * NEVER exposed to the SPA. Used only for internal DPoP proof signing.
      */
     @Column(name = "private_key_jwk", nullable = false, columnDefinition = "TEXT")
     private String privateKeyJwk;
+
+    /**
+     * The BFF access JWT for this browser session. Stored server side and never sent
+     * to the SPA. The browser authenticates only with the encrypted session cookie.
+     */
+    @Column(name = "access_token", columnDefinition = "TEXT")
+    private String accessToken;
+
+    /**
+     * The admin JWT produced after mutual RSA authentication. It is associated with the
+     * same key_id and is also never sent to the SPA.
+     */
+    @Column(name = "admin_token", columnDefinition = "TEXT")
+    private String adminToken;
 
     /**
      * The JWK thumbprint (RFC 7638) of the public key.
@@ -185,6 +198,22 @@ public class DPoPKey {
 
     public void setPrivateKeyJwk(String privateKeyJwk) {
         this.privateKeyJwk = privateKeyJwk;
+    }
+
+    public String getAccessToken() {
+        return accessToken;
+    }
+
+    public void setAccessToken(String accessToken) {
+        this.accessToken = accessToken;
+    }
+
+    public String getAdminToken() {
+        return adminToken;
+    }
+
+    public void setAdminToken(String adminToken) {
+        this.adminToken = adminToken;
     }
 
     public String getPublicKeyThumbprint() {

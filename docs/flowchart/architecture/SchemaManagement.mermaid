@@ -4,37 +4,37 @@
 %% 2. Plugin Schemas (PluginDatabaseManager) - plugin-defined entities
 
 flowchart TD
-    subgraph Trigger[Trigger Points]
-        BOOT[SchemaBootstrapRunner<br/>@CommandLineRunner (after JDA ready)]
-        JOIN[GuildInitializationService<br/>guild join / user DM]
-        EMB[MemoryEmbeddingService<br/>ensureGuild/UserEmbeddingTables]
-        PLUGIN_ON_ENABLE[Plugin @OnEnable<br/>db.autoMigrate(...)]
+    subgraph Trigger["Trigger Points"]
+        BOOT["SchemaBootstrapRunner<br/>@CommandLineRunner (after JDA ready)"]
+        JOIN["GuildInitializationService<br/>guild join / user DM"]
+        EMB["MemoryEmbeddingService<br/>ensureGuild/UserEmbeddingTables"]
+        PLUGIN_ON_ENABLE["Plugin @OnEnable<br/>db.autoMigrate(entityClasses...)"]
     end
 
-    subgraph SvcCore[SchemaManagementService (Core Bot)]
-        DEF_CORE[Declarative TableDefinition<br/>buildGuildTables() / buildUserTables()<br/>buildEmbeddingTables()]
-        REC_CORE[reconcileSchema(schema, tables, embeddingsOnly)]
-        CT_CORE[CREATE TABLE IF NOT EXISTS<br/>(no-op if present)]
-        AC_CORE[ALTER TABLE ADD COLUMN IF NOT EXISTS<br/>(guarded by column-existence check)]
-        CI_CORE[CREATE INDEX IF NOT EXISTS<br/>(no-op if present)]
-        UC_CORE[CREATE UNIQUE INDEX IF NOT EXISTS<br/>uq_<table>_<col><br/>e.g. uq_passive_context_message_id]
-        PG_CORE[isPgvectorAvailable()<br/>dimension from config]
+    subgraph SvcCore["SchemaManagementService (Core Bot)"]
+        DEF_CORE["Declarative TableDefinition<br/>buildGuildTables() / buildUserTables()<br/>buildEmbeddingTables()"]
+        REC_CORE["reconcileSchema(schema, tables, embeddingsOnly)"]
+        CT_CORE["CREATE TABLE IF NOT EXISTS<br/>(no-op if present)"]
+        AC_CORE["ALTER TABLE ADD COLUMN IF NOT EXISTS<br/>(guarded by column-existence check)"]
+        CI_CORE["CREATE INDEX IF NOT EXISTS<br/>(no-op if present)"]
+        UC_CORE["CREATE UNIQUE INDEX IF NOT EXISTS<br/>uq_<table>_<col><br/>e.g. uq_passive_context_message_id"]
+        PG_CORE["isPgvectorAvailable()<br/>dimension from config"]
     end
 
-    subgraph SvcPlugin[PluginDatabaseManager (Plugin API)]
-        DEF_PLUGIN[TableSchema.fromEntity(Class<?>)\n@Entity + @Column annotations]
-        REC_PLUGIN[autoMigrate(entityClasses...)\ncreateOrUpdateTable(entityClass)]
-        CT_PLUGIN[CREATE TABLE IF NOT EXISTS\n(plugin schema)]
-        AC_PLUGIN[ALTER TABLE ADD COLUMN IF NOT EXISTS\n(missing columns from entity)]
-        CI_PLUGIN[CREATE INDEX IF NOT EXISTS\n(from @Column(index/unique))]
-        UC_PLUGIN[CREATE UNIQUE INDEX IF NOT EXISTS\n(from @Column(unique=true))]
+    subgraph SvcPlugin["PluginDatabaseManager (Plugin API)"]
+        DEF_PLUGIN["TableSchema.fromEntity(Class<?>)\n@Entity + @Column annotations"]
+        REC_PLUGIN["autoMigrate(entityClasses...)\ncreateOrUpdateTable(entityClass)"]
+        CT_PLUGIN["CREATE TABLE IF NOT EXISTS\n(plugin schema)"]
+        AC_PLUGIN["ALTER TABLE ADD COLUMN IF NOT EXISTS\n(missing columns from entity)"]
+        CI_PLUGIN["CREATE INDEX IF NOT EXISTS\n(from @Column(index/unique))"]
+        UC_PLUGIN["CREATE UNIQUE INDEX IF NOT EXISTS\n(from @Column(unique=true))"]
     end
 
-    subgraph DB[PostgreSQL]
-        PUB[public schema<br/>(Hibernate ddl-auto: update)]
-        GUILD[guild_{id} schema<br/>dialogue_history, passive_context,<br/>forwarded_messages, user_preferences,<br/>memory, memory_embeddings,<br/>dialogue_embeddings]
-        USER[user_{id} schema<br/>pudel_settings, dialogue_history,<br/>memory, memory_embeddings,<br/>dialogue_embeddings]
-        PLUGIN_SCHEMA[plugin_{pluginId} schema<br/>(plugin-defined tables from entities)]
+    subgraph DB["PostgreSQL"]
+        PUB["public schema<br/>(Hibernate ddl-auto: update)"]
+        GUILD["guild_{id} schema<br/>dialogue_history, passive_context,<br/>forwarded_messages, user_preferences,<br/>memory, memory_embeddings,<br/>dialogue_embeddings"]
+        USER["user_{id} schema<br/>pudel_settings, dialogue_history,<br/>memory, memory_embeddings,<br/>dialogue_embeddings"]
+        PLUGIN_SCHEMA["plugin_{pluginId} schema<br/>(plugin-defined tables from entities)"]
     end
 
     %% Core Bot flow

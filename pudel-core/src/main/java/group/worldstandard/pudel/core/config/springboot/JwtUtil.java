@@ -18,6 +18,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.SignatureAlgorithm;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyFactory;
@@ -38,26 +40,19 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Utility class for handling JSON Web Tokens (JWT).
  * Provides methods for generating, validating, and extracting information from JWT tokens.
  * Supports both standard-bearer tokens and DPoP (Demonstrating Proof-of-Possession) bound tokens.
- * Automatically loads RSA public and private keys from PEM files during initialization.
+ * Automatically loads public and private keys from PEM files during initialization.
  */
 @Component
 public class JwtUtil {
     private static final Logger log = LoggerFactory.getLogger(JwtUtil.class);
-
-    /**
-     * Token type for DPoP-bound tokens.
-     */
-    public static final String TOKEN_TYPE_DPOP = "DPoP";
-
-    /**
-     * Token type for standard Bearer tokens.
-     */
-    public static final String TOKEN_TYPE_BEARER = "Bearer";
+    private static final SignatureAlgorithm algo = Jwts.SIG.EdDSA;
 
     /**
      * Claim key for DPoP JWK thumbprint binding.
@@ -82,77 +77,71 @@ public class JwtUtil {
         try {
             this.privateKey = loadPrivateKey(privateKeyPath);
             this.publicKey = loadPublicKey(publicKeyPath);
-            log.info("RSA keys loaded successfully");
+            log.info("Keys loaded successfully");
         } catch (Exception e) {
-            log.error("Failed to load RSA keys", e);
+            log.error("Failed to load Keys", e);
             throw new RuntimeException("Failed to initialize JWT keys", e);
         }
     }
 
     /**
-     * Loads an RSA private key from a PEM file located at the specified path.
+     * Loads a private key from a PEM file located at the specified path.
      * The method reads the PEM-encoded private key, strips the headers and footers,
      * and decodes the key content into a byte array. It then generates a {@link PrivateKey}
-     * instance using the RSA algorithm and PKCS#8 encoding specification.
+     * instance using the algorithm and PKCS#8 encoding specification.
      *
      * @param path the file system path to the PEM-encoded private key file
      * @return the loaded {@link PrivateKey} instance
      * @throws IOException if an I/O error occurs while reading the file
-     * @throws NoSuchAlgorithmException if the RSA algorithm is not available
+     * @throws NoSuchAlgorithmException if the algorithm is not available
      * @throws InvalidKeySpecException if the key specification is invalid
      */
     private PrivateKey loadPrivateKey(String path) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        byte[] keyBytes = readPemKeyBytes(path, new String[]{
-                "-----BEGIN PRIVATE KEY-----",
-                "-----END PRIVATE KEY-----",
-                "-----BEGIN RSA PRIVATE KEY-----",
-                "-----END RSA PRIVATE KEY-----"
-        });
+        byte[] keyBytes = stripPem(Files.readAllBytes(Path.of(path)));
         PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        KeyFactory keyFactory = KeyFactory.getInstance("EdDSA");
         return keyFactory.generatePrivate(spec);
     }
 
     /**
-     * Loads an RSA public key from a PEM file located at the specified path.
+     * Loads a public key from a PEM file located at the specified path.
      * The method reads the PEM-encoded public key, strips the headers and footers,
      * and decodes the key content into a byte array. It then generates a {@link PublicKey}
-     * instance using the RSA algorithm and X.509 encoding specification.
+     * instance using the algorithm and X.509 encoding specification.
      *
      * @param path the file system path to the PEM-encoded public key file
      * @return the loaded {@link PublicKey} instance
      * @throws IOException if an I/O error occurs while reading the file
-     * @throws NoSuchAlgorithmException if the RSA algorithm is not available
+     * @throws NoSuchAlgorithmException if the algorithm is not available
      * @throws InvalidKeySpecException if the key specification is invalid
      */
     private PublicKey loadPublicKey(String path) throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
-        byte[] keyBytes = readPemKeyBytes(path, new String[]{
-                "-----BEGIN PUBLIC KEY-----",
-                "-----END PUBLIC KEY-----",
-                "-----BEGIN RSA PUBLIC KEY-----",
-                "-----END RSA PUBLIC KEY-----"
-        });
+        byte[] keyBytes = stripPem(Files.readAllBytes(Path.of(path)));
         X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        KeyFactory keyFactory = KeyFactory.getInstance("EdDSA");
         return keyFactory.generatePublic(spec);
     }
 
-    /**
-     * Reads a PEM-formatted key from the specified file path and extracts the base64-encoded body
-     * by removing the provided headers and whitespace characters.
-     *
-     * @param path the file system path to the PEM key file
-     * @param headers an array of header strings to remove from the key content
-     * @return the decoded byte array representing the key body
-     * @throws IOException if an I/O error occurs while reading the file
-     */
-    private byte[] readPemKeyBytes(String path, String[] headers) throws IOException {
-        String keyContent = Files.readString(Path.of(path));
-        for (String header : headers) {
-            keyContent = keyContent.replace(header, "");
+    /** Strip optional PEM armour, returning the raw DER bytes. */
+    private byte[] stripPem(byte[] data) {
+        final String text = new String(data, StandardCharsets.US_ASCII);
+
+        if (!text.contains("-----BEGIN")) {
+            return data; // already DER
         }
-        String pemBody = keyContent.replaceAll("\\s", "");
-        return Base64.getDecoder().decode(pemBody);
+
+        final Pattern PEM_PATTERN = Pattern.compile(
+                "-----BEGIN [^-]+-----(?<payload>[^-]+)-----END [^-]+-----",
+                Pattern.DOTALL
+        );
+
+        final Matcher matcher = PEM_PATTERN.matcher(text);
+        if (matcher.find()) {
+            final String base64Payload = matcher.group("payload").replaceAll("\\s+", "");
+            return Base64.getDecoder().decode(base64Payload);
+        }
+
+        throw new IllegalArgumentException("Malformed PEM data: missing or mismatched BEGIN/END delimiters");
     }
 
     /**
@@ -182,7 +171,7 @@ public class JwtUtil {
                 .claims(claims)
                 .issuedAt(new Date(now))
                 .expiration(expiryDate)
-                .signWith(privateKey, Jwts.SIG.RS512)
+                .signWith(privateKey, algo)
                 .compact();
     }
 
@@ -212,7 +201,7 @@ public class JwtUtil {
                 .claims(allClaims)
                 .issuedAt(new Date(now))
                 .expiration(expiryDate)
-                .signWith(privateKey, Jwts.SIG.RS512)
+                .signWith(privateKey, algo)
                 .compact();
     }
 
@@ -396,7 +385,7 @@ public class JwtUtil {
      *
      * @return the {@link PrivateKey} instance used for signing JWT tokens
      */
-    protected PrivateKey getPrivateKey() {
+    public PrivateKey getPrivateKey() {
         return privateKey;
     }
 }

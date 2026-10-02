@@ -1,4 +1,4 @@
-%% Pudel Module Structure v2.3.2
+%% Pudel Module Structure v2.5.0
 
 flowchart TD
     subgraph API["pudel-api (MIT License)"]
@@ -12,15 +12,6 @@ flowchart TD
         AUDIO_API["audio/<br/>VoiceManager"]
         AGENT_API["agent/<br/>AgentToolRegistry"]
         DB_API["database/<br/>PluginDatabaseManager"]
-    end
-
-    subgraph MODEL["pudel-model (AGPL-3.0)"]
-        direction TB
-        OLLAMA["ollama/<br/>OllamaClient"]
-        EMBED["embedding/<br/>EmbeddingService"]
-        ANALYZER["analyzer/<br/>TextAnalyzerService"]
-        AGENT_MODEL["agent/<br/>PudelAgentService"]
-        MODEL_CONFIG["model-config.yml"]
     end
 
     subgraph CORE["pudel-core (AGPL-3.0)"]
@@ -52,11 +43,24 @@ flowchart TD
             MARKET_CTRL["MarketPluginController"]
         end
 
-        subgraph Brain["Brain"]
+        subgraph Brain["Brain + Agent (in pudel-core)"]
             BRAIN["PudelBrain"]
             MEMORY["MemoryManager"]
             PERSONALITY["PersonalityEngine"]
             RESPONSE["ResponseGenerator"]
+            OLLAMA["OllamaClient"]
+            EMBED["MemoryEmbeddingService"]
+            ANALYZER["TextAnalyzer / EntityExtractor"]
+            AGENT_MODEL["PudelAgentService"]
+        end
+
+        subgraph Session["BFF Session Security"]
+            SESSION_CTRL["SessionController<br/>/api/session/*"]
+            COOKIE_SVC["SessionCookieService<br/>AES-GCM HttpOnly cookie"]
+            SESSION_AUTH["SessionAuthenticationService<br/>server-minted DPoP proof"]
+            JWT_UTIL["JwtUtil (EdDSA / Ed25519)"]
+            AUTH_FILTER2["JwtAuthenticationFilter<br/>rejects Authorization headers"]
+            WS_CFG["WebSocket<br/>/ws/admin/logs"]
         end
 
         subgraph Services["Services"]
@@ -95,10 +99,17 @@ flowchart TD
     PROCESSOR --> ANNOTATION
     BUILTIN --> ANNOTATION
 
-    %% Core uses Model
+    %% Brain internals
     BRAIN --> ANALYZER
     BRAIN --> EMBED
     CHATBOT --> AGENT_MODEL
+
+    %% Session security
+    SESSION_CTRL --> COOKIE_SVC
+    AUTH_FILTER2 --> SESSION_AUTH
+    AUTH_FILTER2 --> COOKIE_SVC
+    SESSION_AUTH --> JWT_UTIL
+    VUE_EXT --> SESSION_CTRL
 
     %% Two-tier control
     ADMIN_CTRL --> PLUGIN_SVC
@@ -109,16 +120,15 @@ flowchart TD
     %% External connections
     CORE --> DISCORD
     CORE --> POSTGRES
-    MODEL --> OLLAMA_EXT
+    OLLAMA --> OLLAMA_EXT
     VUE_EXT --> Controllers
 
     %% Styling
     classDef api fill:#1565c0,stroke:#0d47a1,color:#fff
-    classDef model fill:#7b1fa2,stroke:#4a148c,color:#fff
     classDef core fill:#2e7d32,stroke:#1b5e20,color:#fff
     classDef external fill:#f57c00,stroke:#e65100,color:#fff
 
     class ANNOTATION,CONTEXT,INFO,CMD_API,INTERACT_API,EVENT_API,AUDIO_API,AGENT_API,DB_API api
-    class OLLAMA,EMBED,ANALYZER,AGENT_MODEL,MODEL_CONFIG model
-    class MAIN,CLASSLOADER,PROCESSOR,PLUGIN_SVC,WATCHER,INTERACT_IMPL,INTERACT_LISTENER,BUILTIN,BUILTIN_TEXT,BUILTIN_TOOLS,REGISTRAR,ADMIN_CTRL,GUILD_CTRL,AUTH_CTRL,BOT_CTRL,BRAIN_CTRL,MARKET_CTRL,BRAIN,MEMORY,PERSONALITY,RESPONSE,CHATBOT,CMD_EXEC,GUILD_INIT,GUILD_SETTINGS_SVC,AUTH_SVC,DISCORD_API,PLUGIN_BOOT,CMD_BOOT,SCHEMA_BOOT,SLASH_BOOT core
+    class MAIN,CLASSLOADER,PROCESSOR,PLUGIN_SVC,WATCHER,INTERACT_IMPL,INTERACT_LISTENER,BUILTIN,BUILTIN_TEXT,BUILTIN_TOOLS,REGISTRAR,ADMIN_CTRL,GUILD_CTRL,AUTH_CTRL,BOT_CTRL,BRAIN_CTRL,MARKET_CTRL,BRAIN,MEMORY,PERSONALITY,RESPONSE,OLLAMA,EMBED,ANALYZER,AGENT_MODEL,CHATBOT,CMD_EXEC,GUILD_INIT,GUILD_SETTINGS_SVC,AUTH_SVC,DISCORD_API,PLUGIN_BOOT,CMD_BOOT,SCHEMA_BOOT,SLASH_BOOT core
+    class SESSION_CTRL,COOKIE_SVC,SESSION_AUTH,JWT_UTIL,AUTH_FILTER2,WS_CFG core
     class DISCORD,POSTGRES,OLLAMA_EXT,VUE_EXT external

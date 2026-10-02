@@ -31,8 +31,19 @@ import java.util.List;
 /**
  * OpenAPI / Swagger UI configuration for Pudel REST API.
  * <p>
- * Provides interactive API documentation at /swagger-ui.html
- * and the OpenAPI 3.0 JSON spec at /v3/api-docs.
+ * Provides the OpenAPI 3.0 JSON spec at {@code /v3/api-docs} and the Swagger UI
+ * at {@code /swagger-ui.html}.
+ * <p>
+ * <b>Read-only documentation.</b> These endpoints exist for route lookup only.
+ * Swagger UI's "Try it out" is disabled in {@code application.yml}
+ * ({@code springdoc.swagger-ui.supported-submit-methods: []}) so the spec cannot be
+ * used to execute requests against the production database.
+ * <p>
+ * <b>Cookie-only authentication.</b> The published spec describes the current BFF
+ * architecture: the single browser credential is an AES-GCM encrypted HttpOnly
+ * session cookie. No {@code Authorization} header, bearer token, or client-side
+ * DPoP scheme is declared, because {@link JwtAuthenticationFilter} rejects any
+ * request carrying an {@code Authorization} header outright.
  */
 @Configuration
 public class OpenApiConfig {
@@ -43,9 +54,7 @@ public class OpenApiConfig {
 
     @Bean
     public OpenAPI pudelOpenAPI() {
-        final String dpopSchemeName = "DPoP";
-        final String bearerSchemeName = "Bearer";
-        final String adminBearerSchemeName = "AdminBearer";
+        final String sessionCookieSchemeName = "SessionCookie";
 
         return new OpenAPI()
                 .info(new Info()
@@ -54,14 +63,23 @@ public class OpenApiConfig {
                                 REST API for the %s Discord Bot management platform.
 
                                 ## Authentication
-                                - **Bearer**: Standard JWT token from Discord OAuth callback
-                                - **DPoP**: Proof-of-Possession bound JWT token (RFC 9449)
-                                - **AdminBearer**: Admin session JWT from mutual RSA authentication
+                                This API is cookie-only. There is no `Authorization` header, no bearer
+                                token, and no client-side DPoP proof.
 
-                                ## Getting Started
-                                1. Authenticate via Discord OAuth at `/api/auth/discord/callback`
-                                2. Use the returned token in the `Authorization` header
-                                3. For DPoP tokens, include a DPoP proof in each request
+                                The single credential is an AES-GCM encrypted `HttpOnly` / `Secure` /
+                                `SameSite=Strict` cookie (`pudel_session`) whose plaintext is an opaque
+                                database key id. Call `GET /api/session/bootstrap` once to obtain it, then
+                                send it with every request (`credentials: include` in the browser,
+                                `curl -b` on the command line).
+
+                                Requests carrying an `Authorization` header are rejected with
+                                `401 invalid_token` by design, so no header-based security scheme is
+                                declared here.
+
+                                ## This document is read-only
+                                These docs exist for route lookup. "Try it out" is disabled, because
+                                executing these endpoints against the production database is not a
+                                supported use.
                                 """.formatted(name))
                         .version(version)
                         .contact(new Contact()
@@ -74,26 +92,15 @@ public class OpenApiConfig {
                 .servers(List.of(
                         new Server().url("/").description("Current Server")))
                 .addSecurityItem(new SecurityRequirement()
-                        .addList(bearerSchemeName)
-                        .addList(dpopSchemeName))
+                        .addList(sessionCookieSchemeName))
                 .components(new Components()
-                        .addSecuritySchemes(bearerSchemeName, new SecurityScheme()
-                                .name(bearerSchemeName)
-                                .type(SecurityScheme.Type.HTTP)
-                                .scheme("bearer")
-                                .bearerFormat("JWT")
-                                .description("JWT token from Discord OAuth callback"))
-                        .addSecuritySchemes(dpopSchemeName, new SecurityScheme()
-                                .name(dpopSchemeName)
+                        .addSecuritySchemes(sessionCookieSchemeName, new SecurityScheme()
+                                .name(sessionCookieSchemeName)
                                 .type(SecurityScheme.Type.APIKEY)
-                                .in(SecurityScheme.In.HEADER)
-                                .description("DPoP proof token (RFC 9449). Include DPoP proof in 'DPoP' header and use 'DPoP <token>' in Authorization header."))
-                        .addSecuritySchemes(adminBearerSchemeName, new SecurityScheme()
-                                .name(adminBearerSchemeName)
-                                .type(SecurityScheme.Type.HTTP)
-                                .scheme("bearer")
-                                .bearerFormat("JWT")
-                                .description("Admin JWT from mutual RSA authentication flow")));
+                                .in(SecurityScheme.In.COOKIE)
+                                .description("AES-GCM encrypted HttpOnly browser session cookie "
+                                        + "(`pudel_session`), obtained from `GET /api/session/bootstrap`. "
+                                        + "The cookie is the only credential; there is no bearer token.")));
     }
 }
 

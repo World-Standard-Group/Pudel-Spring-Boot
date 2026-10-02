@@ -47,7 +47,7 @@ The Agent has access to two categories of built-in tools:
 
 ### Agent Tools (Data Management)
 
-Registered via `AgentToolRegistry` as `pudel-core-tools`:
+Registered via `AgentToolRegistry` as `pudel-core`:
 
 | Tool | Description | Example |
 |------|-------------|---------|

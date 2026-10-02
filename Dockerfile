@@ -92,6 +92,11 @@ ENV JWT_PRIVATE_KEY_PATH=/app/keys/pv.key
 ENV JWT_PUBLIC_KEY_PATH=/app/keys/pb.key
 ENV JWT_EXPIRATION=604800000
 
+# Session Configuration
+ENV SESSION_NAME=pudel_session
+ENV SESSION_KEY=
+ENV SESSION_KEYFILE=
+
 # CORS Configuration
 ENV CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost
 

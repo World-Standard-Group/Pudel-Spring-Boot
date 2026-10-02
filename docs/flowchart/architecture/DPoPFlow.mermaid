@@ -1,98 +1,76 @@
-%% Pudel DPoP (RFC 9449) Flow v2.3.2 (BFF Style)
-%% Demonstrating Proof-of-Possession with Backend-managed keys
+%% Pudel DPoP (RFC 9449) Flow v2.5.0 (server-minted, BFF style)
+%% The browser never signs a proof and never sees a key. Every authenticated
+%% request gets a fresh, single-use, EdDSA proof minted and validated in-process.
 
 sequenceDiagram
     participant Client as Vue Frontend
-    participant API as Pudel API
     participant Filter as JwtAuthenticationFilter
+    participant Cookie as SessionCookieService
+    participant KeyMgr as DPoPKeyManager
+    participant DB as PostgreSQL (dpop_keys)
     participant DPoP as DPoPService
-    participant JWT as JwtUtil
-    participant KeyManager as DPoPKeyManager
-    participant Discord as Discord OAuth2
 
-    Note over Client,Discord: Step 1: Backend Generates Keypair (per session)
+    Note over Client,DB: Step 1: Key material lives server-side only
 
-    Client->>API: GET /api/dpop/public-key
-    API->>KeyManager: getPublicKeyJwk()
-    KeyManager-->>API: Return public key JWK
-    API-->>Client: Public key JWK
-    Note right of Client: Store public key for proof creation
+    Client->>Filter: GET /api/guilds/{guildId}/settings (cookie only)
+    Filter->>Cookie: readKeyId(request)
+    Cookie-->>Filter: keyId (AES-GCM decrypted)
+    Filter->>KeyMgr: findActiveSession(keyId)
+    KeyMgr->>DB: SELECT public_key_jwk, private_key_jwk,<br/>public_key_thumbprint, access_token<br/>WHERE key_id=? AND is_active AND expires_at>now()
+    DB-->>KeyMgr: DPoPKey row
+    Note right of KeyMgr: OKP / crv=Ed25519 keypair.<br/>private_key_jwk never leaves the server.
 
-    Note over Client,Discord: Step 2: DPoP-Bound Token Request
+    Note over Client,DB: Step 2: BFF mints the request-bound proof
 
-    Client->>Client: Create DPoP proof payload
-    Note right of Client: Payload: { jti: uuid, htm: "POST",<br/>htu: "/api/auth/discord/callback",<br/>iat: now }
-    Client->>API: POST /api/dpop/sign
-    Note right of Client: Body: { payload: "<payload JSON>" }
-    API->>KeyManager: signDPoPProof(payload)
-    KeyManager-->>API: Signed DPoP proof JWT
-    API-->>Client: Signed DPoP proof
+    Filter->>KeyMgr: signInternalProof(keyId, method, uri, accessToken)
+    KeyMgr->>KeyMgr: payload = { jti: UUID.randomUUID(),<br/>htm: METHOD, htu: requestURL,<br/>iat: epochSecond, ath: base64url(SHA-256(accessToken)) }
+    KeyMgr->>KeyMgr: header = { typ: "dpop-proof", alg: "EdDSA", jwk: publicJwk }<br/>sign with privateKey (EdDSA)
+    KeyMgr->>DB: updateLastUsed(keyId, now)
+    KeyMgr-->>Filter: signed proof JWT
 
-    Client->>API: POST /api/auth/discord/callback
-    Note right of Client: DPoP: <signed proof><br/>Body: { code: "oauth_code" }
+    Note over Client,DB: Step 3: Validation (DPoPService.validateProofForResource)
 
-    API->>DPoP: validateProofForTokenRequest(proof, "POST", uri)
-    DPoP->>DPoP: Verify proof signature (from JWK in header)
-    DPoP->>DPoP: Validate jti uniqueness (replay check)
-    DPoP->>DPoP: Validate htm = "POST"
-    DPoP->>DPoP: Validate htu matches URI
-    DPoP->>DPoP: Validate iat (within 5min, ±30s skew)
-    DPoP->>DPoP: Calculate JWK thumbprint (RFC 7638)
-    DPoP-->>API: ✓ thumbprint = "abc123..."
+    Filter->>DPoP: validateProofForResource(proof, method, uri, token, keyId)
+    DPoP->>DPoP: keyId + proof present?
+    DPoP->>KeyMgr: getPublicKeyJwk(keyId)
+    KeyMgr-->>DPoP: OKP public JWK
+    DPoP->>DPoP: Jwks.parser().parse(jwk).toKey() -> PublicKey
+    DPoP->>DPoP: Verify EdDSA signature over the proof
+    DPoP->>DPoP: Reject unless header alg == "EdDSA"
+    DPoP->>DPoP: htm equalsIgnoreCase request method
+    DPoP->>DPoP: htu matches (scheme dropped, host + port + path compared)
+    DPoP->>DPoP: abs(now - iat) <= 60_000 ms
+    DPoP->>DPoP: purge expired jti entries, then putIfAbsent(keyId:jti)
+    Note right of DPoP: Single-use per key id (RFC 9449 §11.1).<br/>A replay returns "jti already used (replay detected)".
+    DPoP->>DPoP: ath == base64url(SHA-256(accessToken))
+    DPoP->>KeyMgr: getPublicKeyThumbprint(keyId)
+    KeyMgr-->>DPoP: thumbprint
+    DPoP-->>Filter: DPoPValidationResult.valid(thumbprint)
 
-    API->>Discord: Exchange code for access token
-    Discord-->>API: Discord user info
+    Note over Client,DB: Step 4: Binding checks and grant
 
-    API->>JWT: generateDPoPBoundToken(userId, claims, thumbprint)
-    Note right of JWT: JWT contains cnf.jkt = thumbprint
-    JWT-->>API: DPoP-bound JWT
-
-    API->>DPoP: bindTokenToThumbprint(jwt, thumbprint)
-    API-->>Client: { token: "...", token_type: "DPoP" }
-
-    Note over Client,Discord: Step 3: Protected Resource Access
-
-    Client->>Client: Create fresh DPoP proof payload
-    Note right of Client: Payload: { jti: new_uuid,<br/>htm: "GET",<br/>htu: "/api/guilds/123/settings",<br/>iat: now,<br/>ath: SHA256(access_token) }
-    Client->>API: POST /api/dpop/sign
-    Note right of Client: Body: { payload: "<payload JSON>" }
-    API->>KeyManager: signDPoPProof(payload)
-    KeyManager-->>API: Signed DPoP proof JWT
-    API-->>Client: Signed DPoP proof
-
-    Client->>Filter: GET /api/guilds/123/settings
-    Note right of Client: Authorization: DPoP <token><br/>DPoP: <fresh proof>
-
-    Filter->>Filter: Detect "DPoP" auth scheme
-    Filter->>JWT: validateToken(token)
-    JWT-->>Filter: ✓ valid
-
-    Filter->>DPoP: validateProofForResource(proof, "GET", uri, token)
-    DPoP->>DPoP: Verify proof signature
-    DPoP->>DPoP: Validate jti (not replayed)
-    DPoP->>DPoP: Validate htm = "GET"
-    DPoP->>DPoP: Validate htu matches URI
-    DPoP->>DPoP: Validate iat (fresh)
-    DPoP->>DPoP: Validate ath = SHA256(token)
-    DPoP->>DPoP: Verify thumbprint matches binding
-    DPoP-->>Filter: ✓ valid
-
-    Filter->>Filter: Set auth: [USER, DPOP_VERIFIED]
+    Filter->>Filter: JwtUtil.getDPoPThumbprint(accessToken) == proof thumbprint?
+    Filter->>Filter: JwtUtil.getUserIdFromToken(accessToken) == dpop_keys.user_id?
+    Filter->>Filter: set Authentication(userId, [DPOP_VERIFIED])
     Filter-->>Client: 200 OK + guild settings
 
-    Note over Client,Discord: Error: Stolen Token (no private key)
-        Note over Client,Filter: Attacker intercepts DPoP-bound token
-        Client->>Filter: GET /api/guilds/123/settings
-        Note right of Client: Authorization: Bearer <stolen_token>
-        Filter->>JWT: isDPoPBoundToken(token)
-        JWT-->>Filter: true (has cnf.jkt claim)
-        Filter-->>Client: 401 Unauthorized
-        Note right of Filter: WWW-Authenticate: DPoP<br/>error="use_dpop_nonce"<br/>"Token is DPoP-bound"
+    Note over Client,DB: Failure modes
 
-    Note over Client,Discord: Logout
+    alt No / invalid / expired cookie
+        Filter-->>Client: 401 { "error": "invalid_session", ... }
+    else Access token expired or bad signature
+        Filter-->>Client: 401 { "error": "invalid_session",<br/>"error_description": "Browser session token expired or invalid" }
+    else Proof or binding check fails
+        Filter-->>Client: 401 { "error": "invalid_session",<br/>"error_description": "DPoP session validation failed" }<br/>or "Token is not bound to this browser session"
+    end
 
-    Client->>API: POST /api/auth/logout
-    Note right of Client: Authorization: DPoP <token><br/>DPoP: <proof>
-    API->>DPoP: revokeTokenBinding(token)
-    DPoP->>DPoP: Remove tokenBindings[token]
-    API-->>Client: 200 OK
+    Note over Client,DB: Stolen-cookie resistance
+
+    Note over Client,DB: An attacker who copies the cookie ciphertext still cannot use it:<br/>the key id must resolve to an active row whose access token is DPoP-bound to the<br/>same Ed25519 key, and the cookie itself is authenticated AES-GCM.<br/>Session rotation (/api/session/rotate) issues a fresh key and retires the old one.
+
+    Note over Client,DB: Revocation
+
+    Client->>Filter: POST /api/auth/logout (cookie only)
+    Filter->>KeyMgr: clearKeyPair(keyId)
+    KeyMgr->>DB: UPDATE dpop_keys SET is_active = false
+    Note right of DB: No tokenBindings map exists any more —<br/>revocation is the is_active flag on the key row.

@@ -1,4 +1,4 @@
-%% Pudel Command System v2.3.2
+%% Pudel Command System v2.5.0
 %% Components V2 + Two-Tier Sync + Unified Built-in Architecture
 
 flowchart TD
@@ -21,7 +21,7 @@ flowchart TD
         TEXT_LISTENER["DiscordEventListener"]
         TEXT_EXEC["CommandExecutionService"]
         TEXT_REGISTRY["CommandRegistry<br/>(lookup handler)"]
-        TEXT_BUILTIN["BuiltinTextCommands<br/>(pudel-core-text)<br/>!ping !help"]
+        TEXT_BUILTIN["BuiltinTextCommands<br/>(pudel-core)<br/>!ping !help"]
         TEXT_PLUGIN["Plugin Class<br/>@TextCommand"]
     end
 
@@ -44,8 +44,8 @@ flowchart TD
     subgraph Registration["📋 Registration & Sync<br/>(BuiltinSlashCommandRegistrar)"]
         REGISTRAR["@PostConstruct"]
         PROC_SLASH["processAndRegister<br/>(pudel-core)"]
-        PROC_TEXT["processAndRegister<br/>(pudel-core-text)"]
-        PROC_TOOLS["registerProvider<br/>(pudel-core-tools)"]
+        PROC_TEXT["processAndRegister<br/>(pudel-core)"]
+        PROC_TOOLS["registerProvider<br/>(pudel-core)"]
         SYNC_GLOBAL["syncCommands()<br/>core → global"]
         SYNC_GUILD["syncCommands()<br/>plugins → per-guild<br/>(filter disabled_plugins)"]
     end

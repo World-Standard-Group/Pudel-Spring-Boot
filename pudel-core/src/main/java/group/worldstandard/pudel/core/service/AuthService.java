@@ -25,6 +25,7 @@ import group.worldstandard.pudel.core.dto.OAuthCallbackResponse;
 import group.worldstandard.pudel.core.dto.UserDto;
 import group.worldstandard.pudel.core.entity.Guild;
 import group.worldstandard.pudel.core.entity.GuildSettings;
+import group.worldstandard.pudel.core.entity.DPoPKey;
 import group.worldstandard.pudel.core.entity.User;
 import group.worldstandard.pudel.core.entity.UserGuild;
 import group.worldstandard.pudel.core.repository.GuildRepository;
@@ -32,6 +33,7 @@ import group.worldstandard.pudel.core.service.DiscordAPIService.TokenResult;
 import group.worldstandard.pudel.core.repository.GuildSettingsRepository;
 import group.worldstandard.pudel.core.repository.UserRepository;
 import group.worldstandard.pudel.core.repository.UserGuildRepository;
+import group.worldstandard.pudel.core.session.SessionAuthenticationService;
 import java.time.Instant;
 import java.util.*;
 
@@ -48,6 +50,8 @@ public class AuthService extends BaseService {
     private final UserGuildRepository userGuildRepository;
     private final JwtUtil jwtUtil;
     private final DPoPService dpopService;
+    private final DPoPKeyManager dpopKeyManager;
+    private final SessionAuthenticationService sessionAuthenticationService;
 
     public AuthService(@Lazy JDA jda,
                        DiscordAPIService discordAPIService,
@@ -56,7 +60,9 @@ public class AuthService extends BaseService {
                        GuildSettingsRepository guildSettingsRepository,
                        UserGuildRepository userGuildRepository,
                        JwtUtil jwtUtil,
-                       DPoPService dpopService) {
+                       DPoPService dpopService,
+                       DPoPKeyManager dpopKeyManager,
+                       SessionAuthenticationService sessionAuthenticationService) {
         super(jda);
         this.discordAPIService = discordAPIService;
         this.userRepository = userRepository;
@@ -65,29 +71,15 @@ public class AuthService extends BaseService {
         this.userGuildRepository = userGuildRepository;
         this.jwtUtil = jwtUtil;
         this.dpopService = dpopService;
+        this.dpopKeyManager = dpopKeyManager;
+        this.sessionAuthenticationService = sessionAuthenticationService;
     }
 
     @Transactional
-    public OAuthCallbackResponse handleOAuthCallback(String code) {
-        return handleOAuthCallback(code, null, null, null, null);
-    }
-
-    @Transactional
-    public OAuthCallbackResponse handleOAuthCallback(String code, String dpopProof, String httpMethod, String httpUri, String dpopKeyId) {
+    public OAuthCallbackResponse handleOAuthCallback(String code, String browserKeyId) {
         try {
-            String dpopThumbprint = null;
-
-            if (dpopProof != null && !dpopProof.isBlank()) {
-                // Use database-backed key validation (keyId from header)
-                DPoPService.DPoPValidationResult proofResult = dpopService.validateProofForResource(dpopProof, httpMethod, httpUri, null, dpopKeyId);
-
-                if (!proofResult.valid()) {
-                    log.warn("DPoP proof validation failed during OAuth: {}", proofResult.error());
-                    return null;
-                }
-
-                dpopThumbprint = proofResult.thumbprint();
-                log.info("DPoP proof validated for OAuth callback, thumbprint: {}", dpopThumbprint);
+            if (browserKeyId == null || browserKeyId.isBlank()) {
+                return null;
             }
 
             TokenResult tokenResult = discordAPIService.exchangeCodeForTokens(code);
@@ -127,21 +119,12 @@ public class AuthService extends BaseService {
 
             Map<String, Object> claims = new HashMap<>();
             claims.put("username", user.getUsername());
+            String jwtToken = jwtUtil.generateDPoPBoundToken(
+                    user.getId(), claims, dpopKeyManager.getPublicKeyThumbprint(browserKeyId));
+            dpopKeyManager.bindSessionKey(browserKeyId, user.getId(), jwtToken);
 
-            String jwtToken;
-            String tokenType;
-            if (dpopThumbprint != null) {
-                jwtToken = jwtUtil.generateDPoPBoundToken(user.getId(), claims, dpopThumbprint);
-                tokenType = JwtUtil.TOKEN_TYPE_DPOP;
-                log.info("Generated DPoP-bound token for user: {}", user.getId());
-            } else {
-                jwtToken = jwtUtil.generateToken(user.getId(), claims);
-                tokenType = JwtUtil.TOKEN_TYPE_BEARER;
-                log.info("Generated Bearer token for user: {}", user.getId());
-            }
-
-            OAuthCallbackResponse response = new OAuthCallbackResponse(jwtToken, userDto);
-            response.setTokenType(tokenType);
+            OAuthCallbackResponse response = new OAuthCallbackResponse(null, userDto);
+            response.setTokenType("COOKIE");
             return response;
         } catch (Exception e) {
             log.error("Error handling OAuth callback", e);
@@ -150,73 +133,31 @@ public class AuthService extends BaseService {
     }
 
     /**
-     * Refresh a user's session WITHOUT forcing a full Discord re-login.
-     * <p>
-     * RFC 9449 BFF refresh flow:
-     * <ol>
-     *   <li>Validate the DPoP proof presented with the (still-valid) access token.</li>
-     *   <li>Re-validate that the token is still bound to the SAME DPoP key thumbprint
-     *       (prevents key-desync → "key mismatch 401" after a restart).</li>
-     *   <li>If the Discord access token is expired/near-expiry, exchange the stored
-     *       Discord <b>refresh token</b> (server-side, never sent to the client) for a
-     *       fresh Discord access token and re-sync guilds.</li>
-     *   <li>Re-issue a DPoP-bound JWT bound to the SAME key thumbprint — the key pair
-     *       is NEVER regenerated here, so existing DPoP proofs keep validating.</li>
-     * </ol>
-     * This is what lets the SPA survive restarts and token expiry silently.
-     *
-     * @param dpopProof  the DPoP proof from the request
-     * @param httpMethod the HTTP method
-     * @param httpUri    the full request URI
-     * @param dpopKeyId the DPoP key id (X-DPoP-Key-Id header)
-     * @param existingToken the current access token (Authorization: DPoP <token>)
-     * @return a fresh OAuthCallbackResponse, or null if refresh is impossible (caller forces re-login)
+     * Refreshes the server-held DPoP-bound JWT for the browser key identified only by
+     * the encrypted cookie. No token is supplied by or returned to the SPA.
      */
     @Transactional
-    public OAuthCallbackResponse refresh(String dpopProof, String httpMethod, String httpUri,
-                                      String dpopKeyId, String existingToken) {
+    public OAuthCallbackResponse refresh(String browserKeyId) {
         try {
-            if (existingToken == null || existingToken.isBlank()) {
+            DPoPKey session = dpopKeyManager.findActiveSession(browserKeyId).orElse(null);
+            if (session == null) {
                 return null;
             }
 
-            // 1. The current token must still be valid (signature + not expired).
-            if (!jwtUtil.validateToken(existingToken)) {
-                log.info("Refresh denied: existing token invalid/expired");
-                return null;
-            }
-
-            // 2. Validate the DPoP proof and confirm the token is still bound to this key.
-            DPoPService.DPoPValidationResult proofResult =
-                    dpopService.validateProofForResource(dpopProof, httpMethod, httpUri, existingToken, dpopKeyId);
-            if (!proofResult.valid()) {
-                log.warn("Refresh denied: DPoP proof invalid: {}", proofResult.error());
-                return null;
-            }
-            String tokenThumbprint = jwtUtil.getDPoPThumbprint(existingToken);
-            if (tokenThumbprint != null && !tokenThumbprint.equals(proofResult.thumbprint())) {
-                log.warn("Refresh denied: token not bound to presented key");
-                return null;
-            }
-
-            String userId = jwtUtil.getUserIdFromToken(existingToken);
-            if (userId == null) {
-                return null;
-            }
-
-            // 3. Refresh the Discord access token server-side if needed.
-            User user = userRepository.findById(userId).orElse(null);
+            User user = userRepository.findById(session.getUserId()).orElse(null);
             if (user == null) {
                 return null;
             }
+
             boolean discordExpired = user.getTokenExpiresAt() == null
                     || user.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(300));
             if (discordExpired) {
                 String refreshToken = user.getRefreshToken();
                 TokenResult refreshed = discordAPIService.refreshAccessToken(refreshToken);
                 if (refreshed == null || refreshed.accessToken() == null) {
-                    log.warn("Discord token refresh failed for user {} (refresh token may be revoked)", userId);
-                    return null; // caller must force full re-login
+                    log.warn("Discord token refresh failed for user {} (refresh token may be revoked)",
+                            user.getId());
+                    return null;
                 }
                 user.setAccessToken(refreshed.accessToken());
                 if (refreshed.refreshToken() != null && !refreshed.refreshToken().isBlank()) {
@@ -227,26 +168,52 @@ public class AuthService extends BaseService {
 
                 List<Map<String, Object>> discordGuilds =
                         discordAPIService.getUserGuilds(refreshed.accessToken());
-                syncUserGuilds(userId, discordGuilds);
+                syncUserGuilds(user.getId(), discordGuilds);
             }
 
-            // 4. Re-issue a DPoP-bound JWT bound to the SAME key (no key regeneration).
             Map<String, Object> claims = new HashMap<>();
             claims.put("username", user.getUsername());
-            String jwtToken = jwtUtil.generateDPoPBoundToken(userId, claims, proofResult.thumbprint());
-            log.info("Refreshed DPoP-bound token for user: {} (key unchanged)", userId);
+            String jwtToken = jwtUtil.generateDPoPBoundToken(
+                    user.getId(), claims, dpopKeyManager.getPublicKeyThumbprint(browserKeyId));
+            dpopKeyManager.storeAccessToken(browserKeyId, jwtToken);
+            log.info("Refreshed the server-held BFF token for browser key {}", browserKeyId);
 
-            OAuthCallbackResponse response = new OAuthCallbackResponse(jwtToken, null);
-            response.setTokenType(JwtUtil.TOKEN_TYPE_DPOP);
+            UserDto userDto = new UserDto();
+            userDto.setId(user.getId());
+            userDto.setUsername(user.getUsername());
+            userDto.setDiscriminator(user.getDiscriminator());
+            userDto.setAvatar(user.getAvatar());
+            OAuthCallbackResponse response = new OAuthCallbackResponse(null, userDto);
+            response.setTokenType("COOKIE");
             return response;
         } catch (Exception e) {
-            log.error("Error during token refresh", e);
+            log.error("Error during BFF token refresh", e);
             return null;
         }
     }
 
+    @Transactional(readOnly = true)
+    public UserDto getCurrentUser(String browserKeyId) {
+        return dpopKeyManager.findActiveSession(browserKeyId)
+                .map(DPoPKey::getAccessToken)
+                .filter(token -> token != null && jwtUtil.validateToken(token))
+                .map(jwtUtil::getUserIdFromToken)
+                .flatMap(userRepository::findById)
+                .map(user -> {
+                    UserDto dto = new UserDto();
+                    dto.setId(user.getId());
+                    dto.setUsername(user.getUsername());
+                    dto.setDiscriminator(user.getDiscriminator());
+                    dto.setAvatar(user.getAvatar());
+                    dto.setEmail(user.getEmail());
+                    dto.setVerified(user.getVerified());
+                    return dto;
+                })
+                .orElse(null);
+    }
+
     public void revokeToken(String token) {
-        log.info("Token revocation requested (BFF-style - handled by session management)");
+        log.info("Token revocation requested (server-held BFF session)");
     }
 
     @Transactional

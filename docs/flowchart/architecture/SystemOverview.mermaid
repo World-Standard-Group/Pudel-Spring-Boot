@@ -1,4 +1,4 @@
-%% Pudel System Overview v2.3.2
+%% Pudel System Overview v2.5.0
 %% Two-Tier Plugin Control + Components V2
 
 flowchart TB
@@ -16,77 +16,84 @@ flowchart TB
         CV2["Components V2<br/>Buttons / Modals /<br/>EntitySelectMenu"]
     end
 
-    subgraph Pudel["🐩 Pudel v2.3.1"]
-        subgraph Core["pudel-core"]
-            JDA["JDA 6<br/>(Discord API)"]
-            SPRING["Spring Boot 4"]
+    subgraph Pudel["🐩 Pudel v2.5.0"]
+    subgraph Core["pudel-core"]
+    JDA["JDA 6<br/>(Discord API)"]
+    SPRING["Spring Boot 4"]
 
-            subgraph PluginSys["Plugin System"]
-                LOADER["PluginClassLoader"]
-                PROCESSOR["AnnotationProcessor"]
-                PLUGIN_SVC["PluginService<br/>(global lifecycle)"]
-                WATCHER["PluginWatcherService<br/>(hot-reload)"]
-            end
-
-            subgraph Commands["Command System"]
-                BUILTIN["BuiltinCommands<br/>Components V2 Panel<br/>/settings"]
-                INTERACT_MGR["InteractionManagerImpl<br/>Two-tier sync:<br/>core→global, plugin→guild"]
-                CMD_REG["CommandRegistry"]
-            end
-
-            subgraph REST["REST API Controllers"]
-                ADMIN_CTRL["AdminController<br/>(global plugin mgmt)"]
-                GUILD_CTRL["GuildSettingsController<br/>(guild plugin toggle)"]
-                AUTH_CTRL["AuthController"]
-            end
-
-            subgraph Brain["AI Brain"]
-                BRAIN["PudelBrain"]
-                MEMORY["MemoryManager"]
-            end
-
-            subgraph GuildData["Guild Settings"]
-                GUILD_SETTINGS["GuildSettings<br/>disabled_plugins CSV<br/>disabled_commands CSV"]
-                GUILD_SVC["GuildSettingsService"]
-            end
-        end
-
-        subgraph Model["pudel-model"]
-            OLLAMA_CLIENT["OllamaClient"]
-            ANALYZER["TextAnalyzer"]
-            AGENT["AgentService"]
-        end
-
-        subgraph API["pudel-api (MIT)"]
-            ANNOTATIONS["@Plugin @SlashCommand<br/>@ButtonHandler @ModalHandler<br/>@TextCommand @OnEnable<br/>@OnShutdown"]
-        end
-
-        subgraph Plugins["External Plugins"]
-            PLUGIN1["🎵 Music Plugin"]
-            PLUGIN2["🛡️ Moderation Plugin"]
-            PLUGIN3["🔧 Custom Plugin"]
-            PLUGIN4["etc..."]
-        end
+    subgraph AuthSec["BFF Session Security"]
+    SESSION_CTRL["SessionController<br/>/api/session/*"]
+    COOKIE["SessionCookieService<br/>AES-GCM HttpOnly cookie"]
+    AUTH_FILTER["JwtAuthenticationFilter<br/>rejects Authorization headers"]
+    DPOP_SVC["DPoPService + DPoPKeyManager<br/>Ed25519, server-minted proofs"]
+    JWT["JwtUtil (EdDSA)"]
+    ADMIN_AUTH["AdminController<br/>mutual auth, DB-backed admin token"]
+    WS["WebSocket<br/>/ws/admin/logs"]
     end
 
-    subgraph Infrastructure["🏗️ Infrastructure"]
-        DB[(PostgreSQL<br/>+ pgvector)]
-        LLM["Ollama<br/>(Local LLM)"]
-        VUE["Vue Dashboard"]
+    subgraph PluginSys["Plugin System"]
+    LOADER["PluginClassLoader"]
+    PROCESSOR["AnnotationProcessor"]
+    PLUGIN_SVC["PluginService<br/>(global lifecycle)"]
+    WATCHER["PluginWatcherService<br/>(hot-reload)"]
     end
 
-    %% User flows
-    DISCORD_USER --> DG
-    GUILD_ADMIN --> DG
-    GUILD_ADMIN --> VUE
-    BOT_ADMIN --> VUE
-    DEVELOPER -->|"Create JAR"| Plugins
+    subgraph Commands["Command System"]
+    BUILTIN["BuiltinCommands<br/>Components V2 Panel<br/>/settings"]
+    INTERACT_MGR["InteractionManagerImpl<br/>Two-tier sync:<br/>core→global, plugin→guild"]
+    CMD_REG["CommandRegistry"]
+    end
 
-    %% Discord to Pudel
-    DG --> JDA
-    SLASH --> INTERACT_MGR
-    TEXT --> CMD_REG
-    CV2 --> INTERACT_MGR
+    subgraph REST["REST API Controllers"]
+    AUTH_CTRL["AuthController<br/>/api/auth/*"]
+    ADMIN_CTRL["AdminController<br/>(global plugin mgmt)"]
+    GUILD_CTRL["GuildSettingsController<br/>(guild plugin toggle)"]
+    end
+
+    subgraph Brain["AI Brain (in pudel-core)"]
+    BRAIN["PudelBrain"]
+    OLLAMA_CLIENT["OllamaClient"]
+    ANALYZER["TextAnalyzer"]
+    AGENT["PudelAgentService"]
+    MEMORY["MemoryManager"]
+    end
+
+    subgraph GuildData["Guild Settings"]
+    GUILD_SETTINGS["GuildSettings<br/>disabled_plugins CSV<br/>disabled_commands CSV"]
+    GUILD_SVC["GuildSettingsService"]
+    end
+    end
+
+    subgraph API["pudel-api (MIT)"]
+    ANNOTATIONS["@Plugin @SlashCommand<br/>@ButtonHandler @ModalHandler<br/>@TextCommand @OnEnable<br/>@OnShutdown"]
+    end
+
+    subgraph Plugins["External Plugins"]
+    PLUGIN1["🎵 Music Plugin"]
+    PLUGIN2["🛡️ Moderation Plugin"]
+    PLUGIN3["🔧 Custom Plugin"]
+    PLUGIN4["etc..."]
+    end
+        end
+
+        subgraph Infrastructure["🏗️ Infrastructure"]
+    DB[("PostgreSQL<br/>+ pgvector<br/>(dpop_keys holds the<br/>session keypair + tokens)")]
+    LLM["Ollama<br/>(Local LLM)"]
+    VUE["Vue Dashboard<br/>(cookie only —<br/>no token in JS)"]
+        end
+
+        %% User flows
+        DISCORD_USER --> DG
+        GUILD_ADMIN --> DG
+        GUILD_ADMIN --> VUE
+        BOT_ADMIN --> VUE
+        DEVELOPER -->|"Create JAR"| Plugins
+
+        %% Discord to Pudel
+        DG --> JDA
+        SLASH --> INTERACT_MGR
+        TEXT --> CMD_REG
+        CV2 --> INTERACT_MGR
 
     %% Plugin system
     LOADER --> PROCESSOR
@@ -106,12 +113,30 @@ flowchart TB
     GUILD_SETTINGS --> INTERACT_MGR
     BUILTIN --> GUILD_SVC
 
+    %% Session security
+    VUE -->|"HTTPS + encrypted cookie"| SESSION_CTRL
+    VUE -->|"HTTPS + encrypted cookie"| AUTH_CTRL
+    SESSION_CTRL --> COOKIE
+    COOKIE --> DB
+    VUE --> AUTH_FILTER
+    AUTH_FILTER --> COOKIE
+    AUTH_FILTER --> DPOP_SVC
+    AUTH_FILTER --> JWT
+    DPOP_SVC --> DB
+    AUTH_CTRL --> DPOP_SVC
+    ADMIN_AUTH --> DPOP_SVC
+    ADMIN_AUTH --> JWT
+    VUE -->|"wss://…/ws/admin/logs"| WS
+
     %% REST API
-    VUE --> REST
+    AUTH_FILTER --> REST
     REST --> DB
 
     %% AI flow
-    Brain --> Model
+    BRAIN --> OLLAMA_CLIENT
+    BRAIN --> ANALYZER
+    BRAIN --> AGENT
+    BRAIN --> MEMORY
     OLLAMA_CLIENT --> LLM
     MEMORY --> DB
 
@@ -119,15 +144,15 @@ flowchart TB
     classDef user fill:#1565c0,stroke:#0d47a1,color:#fff
     classDef discord fill:#5865F2,stroke:#4752C4,color:#fff
     classDef core fill:#2e7d32,stroke:#1b5e20,color:#fff
-    classDef model fill:#7b1fa2,stroke:#4a148c,color:#fff
+    classDef security fill:#00695c,stroke:#004d40,color:#fff
     classDef api fill:#00796b,stroke:#004d40,color:#fff
     classDef plugin fill:#f57c00,stroke:#e65100,color:#fff
     classDef infra fill:#455a64,stroke:#263238,color:#fff
 
     class DISCORD_USER,GUILD_ADMIN,BOT_ADMIN,DEVELOPER user
     class DG,SLASH,TEXT,CV2 discord
-    class JDA,SPRING,LOADER,PROCESSOR,PLUGIN_SVC,WATCHER,BUILTIN,INTERACT_MGR,CMD_REG,ADMIN_CTRL,GUILD_CTRL,AUTH_CTRL,BRAIN,MEMORY,GUILD_SETTINGS,GUILD_SVC core
-    class OLLAMA_CLIENT,ANALYZER,AGENT model
+    class JDA,SPRING,LOADER,PROCESSOR,PLUGIN_SVC,WATCHER,BUILTIN,INTERACT_MGR,CMD_REG,ADMIN_CTRL,GUILD_CTRL,BRAIN,MEMORY,OLLAMA_CLIENT,ANALYZER,AGENT,GUILD_SETTINGS,GUILD_SVC core
+    class SESSION_CTRL,COOKIE,AUTH_FILTER,DPOP_SVC,JWT,ADMIN_AUTH,WS,AUTH_CTRL security
     class ANNOTATIONS api
     class PLUGIN1,PLUGIN2,PLUGIN3,PLUGIN4 plugin
     class DB,LLM,VUE infra

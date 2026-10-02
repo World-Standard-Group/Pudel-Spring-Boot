@@ -66,35 +66,67 @@ public class MigrationHelperImpl implements PluginMigration.MigrationHelper {
     }
 
     /**
-     * Adds a new column to an existing table in the database.
-     * The column is added only if it does not already exist.
-     *
-     * @param tableName   the name of the table to which the column will be added (without schema prefix)
-     * @param columnName  the name of the new column
-     * @param type        the data type of the new column
-     * @param size        the size of the column, applicable for types like STRING and DECIMAL; can be null if not applicable
-     * @param nullable    whether the column allows NULL values
-     * @param defaultValue the default value for the column, can be null if no default is specified
-     */
-    @Override
-    public void addColumn(String tableName, String columnName, ColumnType type, Integer size,
-                         boolean nullable, String defaultValue) {
-        String fullTableName = dbManager.getFullTableName(tableName);
-        StringBuilder sql = new StringBuilder();
-        sql.append("ALTER TABLE ").append(fullTableName);
-        sql.append(" ADD COLUMN IF NOT EXISTS ").append(columnName).append(" ");
-        sql.append(type.getSqlType(size));
+         * Adds a new column to an existing table in the database.
+         * The column is added only if it does not already exist.
+         *
+         * @param tableName   the name of the table to which the column will be added (without schema prefix)
+         * @param columnName  the name of the new column
+         * @param type        the data type of the new column
+         * @param size        the size of the column, applicable for types like STRING and DECIMAL; can be null if not applicable
+         * @param nullable    whether the column allows NULL values
+         * @param defaultValue the default value for the column, can be null if no default is specified
+         */
+        @Override
+        public void addColumn(String tableName, String columnName, ColumnType type, Integer size,
+                             boolean nullable, String defaultValue) {
+            String fullTableName = dbManager.getFullTableName(tableName);
+            StringBuilder sql = new StringBuilder();
+            sql.append("ALTER TABLE ").append(fullTableName);
+            sql.append(" ADD COLUMN IF NOT EXISTS ").append(columnName).append(" ");
+            sql.append(type.getSqlType(size));
 
-        if (!nullable) {
-            sql.append(" NOT NULL");
-        }
-        if (defaultValue != null) {
-            sql.append(" DEFAULT ").append(defaultValue);
+            if (!nullable) {
+                sql.append(" NOT NULL");
+            }
+            if (defaultValue != null) {
+                sql.append(" DEFAULT ").append(formatDefaultValue(defaultValue, type));
+            }
+
+            jdbcTemplate.execute(sql.toString());
+            logger.debug("Added column {} to table {}", columnName, fullTableName);
         }
 
-        jdbcTemplate.execute(sql.toString());
-        logger.debug("Added column {} to table {}", columnName, fullTableName);
-    }
+        /**
+         * Formats a default value for SQL based on the column type.
+         * String types get single-quoted, other types are used as-is.
+         */
+        private String formatDefaultValue(String defaultValue, ColumnType type) {
+            // Keywords that should not be quoted
+            String upper = defaultValue.trim().toUpperCase();
+            if (upper.equals("CURRENT_TIMESTAMP") 
+                || upper.equals("CURRENT_DATE") 
+                || upper.equals("CURRENT_TIME")
+                || upper.equals("NOW()")
+                || upper.equals("DEFAULT")
+                || upper.equals("NULL")
+                || upper.equals("TRUE")
+                || upper.equals("FALSE")
+                || upper.startsWith("NEXTVAL(")
+                || upper.startsWith("GEN_RANDOM_UUID()")
+                || upper.startsWith("UUID_GENERATE_V4()")) {
+                return defaultValue;
+            }
+        
+            // For string/text types, wrap in single quotes and escape existing single quotes
+            if (type == ColumnType.STRING || type == ColumnType.TEXT 
+                || type == ColumnType.UUID || type == ColumnType.JSON) {
+                String escaped = defaultValue.replace("'", "''");
+                return "'" + escaped + "'";
+            }
+        
+            // For other types (numeric, boolean, etc.), use as-is
+            return defaultValue;
+        }
 
     /**
      * Drops a column from an existing table in the database.

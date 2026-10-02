@@ -1,4 +1,4 @@
-%% Pudel Agent System v2.3.2
+%% Pudel Agent System v2.5.0
 %% Dual Tool Registry: MCP tools (McpToolRegistry) + Agent tools (AgentToolRegistry)
 %% Unified dispatch via PudelAgentService.processWithTools()
 
@@ -24,7 +24,7 @@ flowchart TD
 
     subgraph AgentRegistry["📋 AgentToolRegistry"]
         AGENT_REG["AgentToolRegistryImpl"]
-        AGENT_BUILTIN["pudel-core-tools<br/>(BuiltinAgentTools)"]
+        AGENT_BUILTIN["pudel-core<br/>(BuiltinAgentTools)"]
         AGENT_PLUGIN["plugin tools<br/>(via registerProvider)"]
     end
 

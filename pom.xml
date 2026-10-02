@@ -58,20 +58,20 @@
         <pudel.version>2.5.0</pudel.version>
 
         <!--JDA Version Control-->
-        <jda.version>6.5.0</jda.version>
+        <jda.version>6.7.0</jda.version>
 
         <!--Indirect Version Control-->
-        <tomcat.version>11.0.25</tomcat.version>
-        <logback.version>1.6.3</logback.version>
+        <tomcat.version>11.0.26</tomcat.version>
+        <logback.version>1.6.4</logback.version>
 
         <!--Maven Plugin Version Control-->
-        <mvn.compiler.version>3.15.0</mvn.compiler.version>
+        <mvn.compiler.version>3.16.0</mvn.compiler.version>
 
         <!--Pudel-Core Version Control-->
         <jdave.version>0.1.8</jdave.version>
         <jwt.version>0.13.0</jwt.version>
-        <langchain4j.version>1.19.0</langchain4j.version>
-        <swagger.openapi.version>3.1.0</swagger.openapi.version>
+        <langchain4j.version>1.20.2</langchain4j.version>
+        <swagger.openapi.version>3.1.1</swagger.openapi.version>
         <jdbc.postgresql.version>42.7.13</jdbc.postgresql.version>
         <apache.commonlang.version>3.20.0</apache.commonlang.version>
         <json.version>20260814</json.version>
@@ -99,14 +99,14 @@
             <dependency>
                 <groupId>tools.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
-                <version>3.2.2</version>
+                <version>3.2.3</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
-                <version>2.22.2</version>
+                <version>2.22.3</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -120,7 +120,7 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.2.17.Final</version>
+                <version>4.2.18.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -134,21 +134,21 @@
             <dependency>
                 <groupId>org.springframework.security</groupId>
                 <artifactId>spring-security-bom</artifactId>
-                <version>7.2.0-M1</version>
+                <version>7.2.0-M2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>4.2.0-M1</version>
+                <version>4.2.0-M2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.springframework</groupId>
                 <artifactId>spring-framework-bom</artifactId>
-                <version>7.1.0-M1</version>
+                <version>7.1.0-M2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -178,6 +178,16 @@
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-core</artifactId>
                 <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.crypto.tink</groupId>
+                <artifactId>tink</artifactId>
+                <version>1.23.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.opennlp</groupId>
+                <artifactId>opennlp-tools</artifactId>
+                <version>2.5.12</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

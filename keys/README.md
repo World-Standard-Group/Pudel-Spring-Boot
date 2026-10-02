@@ -1,33 +1,34 @@
-# JWT RSA Keys
+# Signing and Credential Keys
 
-This directory should contain RSA key files for JWT token signing and verification.
+`keys/` holds the key material Pudel needs at runtime. All of it is gitignored
+(only this README is tracked).
 
-## Generate RSA Key Pair
+## JWT Signing Keys (Ed25519)
 
-Run the following commands to generate the keys:
+Every server-issued token — session, admin, swagger — is signed with **Ed25519**
+(`Jwts.SIG.EdDSA`, `KeyFactory("EdDSA")`). RSA keys will make startup fail with
+`Failed to initialize JWT keys`.
 
-### Generate Private Key (PKCS#8 format)
+### Generate the Key Pair
+
 ```bash
-openssl genpkey -algorithm RSA -out pv.key -pkeyopt rsa_keygen_bits:4096
+openssl genpkey -algorithm ED25519 -out pv.key
+openssl pkey -in pv.key -pubout -out pb.key
 ```
 
-### Extract Public Key
-```bash
-openssl rsa -pubout -in pv.key -out pb.key
-```
+### File Structure
 
-## File Structure
+- `pv.key` — Ed25519 private key (PKCS#8 PEM) — **KEEP SECRET!**
+- `pb.key` — Ed25519 public key (X.509 PEM)
 
-After generating, this directory should contain:
-- `pv.key` - RSA private key (PKCS#8 PEM format) - **KEEP SECRET!**
-- `pb.key` - RSA public key (X.509 PEM format)
-
-## Important Security Notes
+### Important Security Notes
 
 1. **Never commit private keys to version control!**
 2. Add `pv.key` and `pb.key` to your `.gitignore`
 3. Use environment variables to specify custom paths in production
-4. Ensure proper file permissions (private key should be readable only by the application user)
+4. Restrict file permissions (`chmod 600 pv.key`, `chmod 644 pb.key`)
+5. Rotating the pair invalidates every issued token and every browser session
+   key bound to it
 
 ## Configuration
 
@@ -78,6 +79,20 @@ services:
    ```
 
 The keys will be automatically mounted into the container at `/app/keys/`.
+
+---
+
+# Other Key Material in `keys/`
+
+| File | Purpose |
+|------|---------|
+| `pv.key` / `pb.key` | Ed25519 JWT signing pair (required) |
+| `owner_pb.key` | Owner's **RSA** public key for the initial admin whitelist entry (`PUDEL_ADMIN_OWNER_PUBLIC_KEY_PATH`). Each admin's own keypair is RSA and their public key is stored in the `admin_whitelist` table |
+| `cookie.key` | AES-256 key for the encrypted session cookie, generated on first start unless `SESSION_KEY` is set |
+| `ca.crt`, `client.crt`, `client.pk8` | PostgreSQL mTLS material (external DB only, see below) |
+
+Note the asymmetry: **Pudel** signs with Ed25519, while **admins** sign the login
+challenge with `SHA256withRSA`. Generate the two key types accordingly.
 
 ---
 

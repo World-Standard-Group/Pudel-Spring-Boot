@@ -17,62 +17,54 @@ package group.worldstandard.pudel.core.service;
 import group.worldstandard.pudel.core.entity.DPoPKey;
 import group.worldstandard.pudel.core.repository.DPoPKeyRepository;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Jwks;
+import io.jsonwebtoken.security.OctetPrivateJwk;
+import io.jsonwebtoken.security.PublicJwk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.exc.JacksonIOException;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.security.interfaces.ECPrivateKey;
-import java.security.interfaces.ECPublicKey;
-import java.security.spec.*;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * BFF-style DPoP key management service with database persistence.
+ * Database-backed BFF DPoP session-key management.
  * <p>
- * This implementation stores DPoP keypairs in the database instead of HttpSession,
- * solving the issue where keys were lost when sessions expired or in stateless architectures.
- * <p>
- * Key features:
- * - Keys persist across page refreshes and session timeouts
- * - Keys are indexed by a stable keyId that the frontend can store
- * - Keys are bound to user ID and optionally to a specific access token
- * - Automatic key expiration and cleanup
- * <p>
- * Flow:
- * 1. Frontend requests a new DPoP key (or retrieves existing one by keyId)
- * 2. Backend generates/retrieves keypair from database
- * 3. Backend returns public key JWK and keyId to frontend
- * 4. Frontend stores keyId in localStorage for persistence
- * 5. Frontend includes keyId in DPoP sign requests
- * 6. Backend retrieves the correct key by keyId and signs the proof
+ * Each browser receives an opaque, AES-GCM-encrypted cookie containing a key id. The
+ * matching Ed25519 private key, public JWK, access JWT, and admin JWT remain server side.
+ * The private key is never exposed to the SPA.
  */
 @Component
 public class DPoPKeyManager {
     private static final Logger log = LoggerFactory.getLogger(DPoPKeyManager.class);
+    public static final String ANONYMOUS_USER_ID = "anonymous";
 
     private final DPoPKeyRepository dpopKeyRepository;
     private final ObjectMapper objectMapper;
 
     /**
-     * Default DPoP key expiration time in hours.
-     * Keys should expire after the access token expires.
+     * Session keys live exactly as long as {@code pudel.jwt.expiration}.
      */
-    @Value("${pudel.dpop.key-expiration-hours:168}")
-    private int keyExpirationHours; // Default: 7 days
+    @Value("${pudel.jwt.expiration:604800000}")
+    private long jwtExpirationMillis;
 
     /**
-     * Maximum number of active DPoP keys per user.
-     * Prevents key accumulation from multiple devices/browsers.
+     * Maximum number of active DPoP keys retained for one authenticated user.
      */
     @Value("${pudel.dpop.max-keys-per-user:10}")
     private int maxKeysPerUser;
@@ -83,342 +75,214 @@ public class DPoPKeyManager {
     }
 
     /**
-     * Initialize or retrieve a DPoP keypair for a user.
-     * <p>
-     * If a keyId is provided and exists in the database, that key is returned.
-     * Otherwise, a new keypair is generated and stored.
-     *
-     * @param userId  The user ID (from JWT token)
-     * @param keyId   Optional key ID from frontend (for key retrieval)
-     * @return DPoPKeyInfo containing the keyId and public key JWK
+     * Creates a new anonymous browser session key and persists it.
+     */
+    @Transactional
+    public DPoPKeyInfo createSessionKey() {
+        return generateAndStoreKeyPair(ANONYMOUS_USER_ID, null);
+    }
+
+    /**
+     * Compatibility bootstrap used by the legacy DPoP controller.
      */
     @Transactional
     public DPoPKeyInfo initializeKeyPair(String userId, String keyId) {
-        // If keyId provided, try to find existing key
-        if (keyId != null && !keyId.isEmpty()) {
-            Optional<DPoPKey> existingKey = dpopKeyRepository.findByKeyId(keyId);
-            if (existingKey.isPresent() && existingKey.get().getIsActive()) {
-                DPoPKey key = existingKey.get();
-                // Verify the key belongs to this user
-                if (key.getUserId().equals(userId)) {
-                    // Update last used timestamp
-                    dpopKeyRepository.updateLastUsed(keyId, Instant.now());
-                    log.debug("Retrieved existing DPoP key for user: {}, keyId: {}", userId, keyId);
-                    return new DPoPKeyInfo(keyId, parseJwk(key.getPublicKeyJwk()));
-                } else {
-                    log.warn("DPoP key {} belongs to different user. Expected: {}, Actual: {}",
-                            keyId, userId, key.getUserId());
-                }
-            } else {
-                log.debug("DPoP key {} not found or inactive, generating new key", keyId);
+        if (keyId != null && !keyId.isBlank()) {
+            Optional<DPoPKey> existing = findActiveSession(keyId);
+            if (existing.isPresent() && userId != null && userId.equals(existing.get().getUserId())) {
+                return new DPoPKeyInfo(keyId, parseJwk(existing.get().getPublicKeyJwk()));
             }
         }
-
-        // Check if user has too many active keys
-        long activeKeyCount = dpopKeyRepository.countByUserIdAndIsActiveTrue(userId);
-        if (activeKeyCount >= maxKeysPerUser) {
-            // Deactivate oldest keys to make room
-            cleanupOldKeys(userId);
-        }
-
-        // Generate new keypair
-        return generateAndStoreKeyPair(userId, null);
+        return generateAndStoreKeyPair(userId == null || userId.isBlank() ? ANONYMOUS_USER_ID : userId, null);
     }
 
-    /**
-     * Generate a new DPoP keypair and store it in the database.
-     *
-     * @param userId          The user ID
-     * @param tokenThumbprint Optional token thumbprint to bind this key to
-     * @return DPoPKeyInfo containing the new keyId and public key JWK
-     */
     @Transactional
     public DPoPKeyInfo generateAndStoreKeyPair(String userId, String tokenThumbprint) {
         try {
-            // Generate EC key pair for DPoP (P-256 curve)
-            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("EC");
-            ECGenParameterSpec ecSpec = new ECGenParameterSpec("secp256r1");
-            keyPairGenerator.initialize(ecSpec);
-            KeyPair keyPair = keyPairGenerator.generateKeyPair();
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+            KeyPair keyPair = generator.generateKeyPair();
 
-            // Convert keys to JWK format
-            Map<String, Object> publicKeyJwk = convertPublicKeyToJwk((ECPublicKey) keyPair.getPublic());
-            Map<String, Object> privateKeyJwk = convertPrivateKeyToJwk((ECPrivateKey) keyPair.getPrivate(), publicKeyJwk);
-
-            // Calculate thumbprint
-            String thumbprint = calculateJwkThumbprint(publicKeyJwk);
-
-            // Generate unique key ID
+            PublicJwk<PublicKey> publicJwk = Jwks.builder().octetKey(keyPair.getPublic()).build();
+            OctetPrivateJwk<PrivateKey, PublicKey> privateJwk =
+                    Jwks.builder().octetKeyPair(keyPair).build();
+            String publicKeyJson = Jwks.json(publicJwk);
+            String privateKeyJson = Jwks.UNSAFE_JSON(privateJwk);
+            String thumbprint = publicJwk.thumbprint().toString();
             String keyId = generateKeyId();
+            Instant expiresAt = Instant.now().plusMillis(jwtExpirationMillis);
 
-            // Serialize JWKs to JSON
-            String publicKeyJwkJson = objectMapper.writeValueAsString(publicKeyJwk);
-            String privateKeyJwkJson = objectMapper.writeValueAsString(privateKeyJwk);
+            DPoPKey row = new DPoPKey();
+            row.setKeyId(keyId);
+            row.setUserId(userId == null || userId.isBlank() ? ANONYMOUS_USER_ID : userId);
+            row.setTokenThumbprint(tokenThumbprint);
+            row.setPublicKeyJwk(publicKeyJson);
+            row.setPrivateKeyJwk(privateKeyJson);
+            row.setPublicKeyThumbprint(thumbprint);
+            row.setExpiresAt(expiresAt);
+            row.setIsActive(true);
+            row = dpopKeyRepository.save(row);
 
-            // Calculate expiration
-            Instant expiresAt = Instant.now().plus(keyExpirationHours, ChronoUnit.HOURS);
-
-            // Store in database
-            DPoPKey dpopKey = new DPoPKey();
-            dpopKey.setKeyId(keyId);
-            dpopKey.setUserId(userId);
-            dpopKey.setTokenThumbprint(tokenThumbprint);
-            dpopKey.setPublicKeyJwk(publicKeyJwkJson);
-            dpopKey.setPrivateKeyJwk(privateKeyJwkJson);
-            dpopKey.setPublicKeyThumbprint(thumbprint);
-            dpopKey.setExpiresAt(expiresAt);
-            dpopKey.setIsActive(true);
-
-            dpopKeyRepository.save(dpopKey);
-
-            log.info("Generated new DPoP keypair for user: {}, keyId: {}, thumbprint: {}", userId, keyId, thumbprint);
-
-            return new DPoPKeyInfo(keyId, publicKeyJwk);
+            log.info("Generated Ed25519 DPoP session key: keyId={}, userId={}, expiresAt={}",
+                    keyId, row.getUserId(), expiresAt);
+            return new DPoPKeyInfo(keyId, parseJwk(publicKeyJson));
         } catch (Exception e) {
-            log.error("Failed to generate DPoP keypair", e);
-            throw new RuntimeException("Failed to initialize DPoP keypair", e);
+            log.error("Failed to generate an Ed25519 DPoP session key", e);
+            throw new IllegalStateException("Failed to generate DPoP session key", e);
         }
     }
 
     /**
-     * Get the DPoP public key in JWK format by keyId.
-     *
-     * @param keyId The key identifier
-     * @return Public key as JWK map
+     * Binds a previously anonymous browser key to the logged-in Discord user and stores
+     * the new BFF access JWT server side.
      */
+    @Transactional
+    public void bindSessionKey(String keyId, String userId, String accessToken) {
+        DPoPKey key = requireActiveSession(keyId);
+        key.setUserId(userId);
+        key.setAccessToken(accessToken);
+        key.setIsActive(true);
+        dpopKeyRepository.save(key);
+        cleanupOldKeys(userId);
+        log.info("Bound browser session {} to user {}", keyId, userId);
+    }
+
+    /**
+     * Replaces the server-side access JWT for the same browser session.
+     */
+    @Transactional
+    public void storeAccessToken(String keyId, String accessToken) {
+        DPoPKey key = requireActiveSession(keyId);
+        key.setAccessToken(accessToken);
+        dpopKeyRepository.save(key);
+    }
+
+    /**
+     * Stores the mutual-auth admin JWT against the same browser session key.
+     */
+    @Transactional
+    public void storeAdminToken(String keyId, String adminToken) {
+        DPoPKey key = requireActiveSession(keyId);
+        key.setAdminToken(adminToken);
+        dpopKeyRepository.save(key);
+        log.info("Stored admin session for browser key {}", keyId);
+    }
+
+    /**
+     * Clears the admin JWT but keeps the ordinary browser session alive.
+     */
+    @Transactional
+    public void clearAdminToken(String keyId) {
+        dpopKeyRepository.findByKeyId(keyId).ifPresent(key -> {
+            key.setAdminToken(null);
+            dpopKeyRepository.save(key);
+        });
+    }
+
+    public Optional<DPoPKey> findActiveSession(String keyId) {
+        if (keyId == null || keyId.isBlank()) {
+            return Optional.empty();
+        }
+        return dpopKeyRepository.findByKeyId(keyId)
+                .filter(DPoPKey::getIsActive)
+                .filter(key -> key.getExpiresAt() != null && key.getExpiresAt().isAfter(Instant.now()));
+    }
+
+    public DPoPKey requireActiveSession(String keyId) {
+        return findActiveSession(keyId).orElseThrow(() ->
+                new IllegalStateException("Active DPoP session not found: " + keyId));
+    }
+
     public Map<String, Object> getPublicKeyJwk(String keyId) {
-        DPoPKey dpopKey = dpopKeyRepository.findByKeyId(keyId)
-                .orElseThrow(() -> new RuntimeException("DPoP key not found: " + keyId));
-
-        if (!dpopKey.getIsActive()) {
-            throw new RuntimeException("DPoP key is no longer active: " + keyId);
-        }
-
-        if (dpopKey.getExpiresAt().isBefore(Instant.now())) {
-            throw new RuntimeException("DPoP key has expired: " + keyId);
-        }
-
+        DPoPKey dpopKey = requireActiveSession(keyId);
         return parseJwk(dpopKey.getPublicKeyJwk());
     }
 
     /**
-     * Sign a DPoP proof payload with the stored private key.
-     *
-     * @param payloadJson JSON string containing the DPoP proof payload (jti, htm, htu, iat, ath)
-     * @param keyId       The key identifier
-     * @return Signed DPoP proof JWT
+     * Signs an internal DPoP proof for a request that has already authenticated through
+     * the encrypted cookie. This is not a client-callable proof oracle.
      */
+    @Transactional
     public String signDPoPProof(String payloadJson, String keyId) {
         try {
-            DPoPKey dpopKey = dpopKeyRepository.findByKeyId(keyId)
-                    .orElseThrow(() -> new RuntimeException("DPoP key not found: " + keyId));
-
-            if (!dpopKey.getIsActive()) {
-                throw new RuntimeException("DPoP key is no longer active: " + keyId);
+            DPoPKey dpopKey = requireActiveSession(keyId);
+            Map<String, Object> privateJwk = parseJwk(dpopKey.getPrivateKeyJwk());
+            java.security.Key key = Jwks.parser().build()
+                    .parse(objectMapper.writeValueAsString(privateJwk)).toKey();
+            if (!(key instanceof PrivateKey privateKey)) {
+                throw new IllegalStateException("Stored DPoP JWK did not reconstruct a private key: " + keyId);
             }
 
-            if (dpopKey.getExpiresAt().isBefore(Instant.now())) {
-                throw new RuntimeException("DPoP key has expired: " + keyId);
-            }
-
-            // Parse private key JWK and reconstruct KeyPair
-            Map<String, Object> privateKeyJwk = parseJwk(dpopKey.getPrivateKeyJwk());
-            KeyPair keyPair = reconstructKeyPair(privateKeyJwk);
-
-            // Update last used timestamp
             dpopKeyRepository.updateLastUsed(keyId, Instant.now());
 
-            // Add typ header
-            Map<String, Object> headers = new HashMap<>();
+            Map<String, Object> headers = new java.util.LinkedHashMap<>();
             headers.put("typ", "dpop+jwt");
-            headers.put("alg", "ES256");
-            headers.put("jwk", parseJwk(dpopKey.getPublicKeyJwk())); // Include public key in header
+            headers.put("alg", "EdDSA");
+            headers.put("jwk", parseJwk(dpopKey.getPublicKeyJwk()));
 
             return Jwts.builder()
                     .header().add(headers).and()
                     .content(payloadJson)
-                    .signWith(keyPair.getPrivate(), Jwts.SIG.ES256)
+                    .signWith(privateKey, Jwts.SIG.EdDSA)
                     .compact();
         } catch (Exception e) {
-            log.error("Failed to sign DPoP proof for keyId: {}", keyId, e);
-            throw new RuntimeException("Failed to sign DPoP proof", e);
+            log.error("Failed to sign the internal DPoP proof for key {}", keyId, e);
+            throw new IllegalStateException("Failed to sign DPoP proof", e);
         }
     }
 
-    /**
-     * Get the JWK thumbprint of a stored public key.
-     *
-     * @param keyId The key identifier
-     * @return Base64url-encoded JWK thumbprint
-     */
     public String getPublicKeyThumbprint(String keyId) {
-        DPoPKey dpopKey = dpopKeyRepository.findByKeyId(keyId)
-                .orElseThrow(() -> new RuntimeException("DPoP key not found: " + keyId));
-
-        return dpopKey.getPublicKeyThumbprint();
+        return requireActiveSession(keyId).getPublicKeyThumbprint();
     }
 
-    /**
-     * Clear (deactivate) a DPoP key by keyId.
-     *
-     * @param keyId The key identifier
-     */
     @Transactional
     public void clearKeyPair(String keyId) {
-        int updated = dpopKeyRepository.deactivateByKeyId(keyId);
-        if (updated > 0) {
-            log.debug("DPoP key deactivated: {}", keyId);
-        }
+        dpopKeyRepository.deactivateByKeyId(keyId);
     }
 
-    /**
-     * Clear all DPoP keys for a user (for logout).
-     *
-     * @param userId The user ID
-     */
     @Transactional
     public void clearAllUserKeys(String userId) {
-        int updated = dpopKeyRepository.deactivateAllByUserId(userId);
-        log.debug("Deactivated {} DPoP keys for user: {}", updated, userId);
+        dpopKeyRepository.deactivateAllByUserId(userId);
     }
 
-    /**
-     * Clean up old keys for a user when they exceed the maximum.
-     * Deactivates the oldest keys first.
-     */
     private void cleanupOldKeys(String userId) {
         List<DPoPKey> activeKeys = dpopKeyRepository.findByUserIdAndIsActiveTrue(userId);
         if (activeKeys.size() >= maxKeysPerUser) {
-            // Sort by last used (oldest first), then deactivate oldest
-            activeKeys.sort(Comparator.comparing(DPoPKey::getLastUsedAt, 
+            activeKeys.sort(Comparator.comparing(DPoPKey::getLastUsedAt,
                     Comparator.nullsFirst(Comparator.naturalOrder())));
-            
-            // Deactivate oldest keys to make room (remove 25% of max)
             int keysToRemove = Math.max(1, maxKeysPerUser / 4);
             for (int i = 0; i < keysToRemove && i < activeKeys.size(); i++) {
                 dpopKeyRepository.deactivateByKeyId(activeKeys.get(i).getKeyId());
-                log.debug("Deactivated old DPoP key: {} for user: {}", 
+                log.debug("Deactivated old DPoP key: {} for user: {}",
                         activeKeys.get(i).getKeyId(), userId);
             }
         }
     }
 
-    /**
-     * Generate a unique key ID.
-     */
     private String generateKeyId() {
         byte[] bytes = new byte[32];
         new SecureRandom().nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    /**
-     * Convert ECPublicKey to JWK format.
-     */
-    private Map<String, Object> convertPublicKeyToJwk(ECPublicKey publicKey) {
-        Map<String, Object> jwk = new LinkedHashMap<>();
-        jwk.put("kty", "EC");
-        jwk.put("crv", "P-256");
-        jwk.put("x", base64UrlEncode(publicKey.getW().getAffineX().toByteArray()));
-        jwk.put("y", base64UrlEncode(publicKey.getW().getAffineY().toByteArray()));
-        return jwk;
-    }
-
-    /**
-     * Convert ECPrivateKey to JWK format (includes public key coordinates).
-     */
-    private Map<String, Object> convertPrivateKeyToJwk(ECPrivateKey privateKey, Map<String, Object> publicKeyJwk) {
-        Map<String, Object> jwk = new LinkedHashMap<>();
-        jwk.put("kty", "EC");
-        jwk.put("crv", "P-256");
-        jwk.put("x", publicKeyJwk.get("x"));
-        jwk.put("y", publicKeyJwk.get("y"));
-        jwk.put("d", base64UrlEncode(privateKey.getS().toByteArray()));
-        return jwk;
-    }
-
-    /**
-     * Reconstruct a KeyPair from a private key JWK.
-     */
-    private KeyPair reconstructKeyPair(Map<String, Object> privateKeyJwk) throws Exception {
-        byte[] xBytes = Base64.getUrlDecoder().decode((String) privateKeyJwk.get("x"));
-        byte[] yBytes = Base64.getUrlDecoder().decode((String) privateKeyJwk.get("y"));
-        byte[] dBytes = Base64.getUrlDecoder().decode((String) privateKeyJwk.get("d"));
-
-        // Create public key
-        ECPoint ecPoint = new ECPoint(new BigInteger(1, xBytes), new BigInteger(1, yBytes));
-        ECParameterSpec ecSpec = getP256Spec();
-        ECPublicKeySpec publicKeySpec = new ECPublicKeySpec(ecPoint, ecSpec);
-
-        // Create private key
-        ECPrivateKeySpec privateKeySpec = new ECPrivateKeySpec(new BigInteger(1, dBytes), ecSpec);
-
-        // Generate key pair
-        KeyFactory keyFactory = KeyFactory.getInstance("EC");
-        return new KeyPair(keyFactory.generatePublic(publicKeySpec), keyFactory.generatePrivate(privateKeySpec));
-    }
-
-    /**
-     * Get the P-256 curve specification.
-     */
-    private ECParameterSpec getP256Spec() throws Exception {
-        AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
-        parameters.init(new ECGenParameterSpec("secp256r1"));
-        return parameters.getParameterSpec(ECParameterSpec.class);
-    }
-
-    /**
-     * Parse a JWK JSON string to a Map.
-     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseJwk(String jwkJson) {
         try {
             return objectMapper.readValue(jwkJson, Map.class);
-        } catch (JacksonIOException e) {
-            throw new RuntimeException("Failed to parse JWK", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to parse stored DPoP JWK", e);
         }
     }
 
-    /**
-     * Calculate JWK thumbprint per RFC 7638.
-     */
-    private String calculateJwkThumbprint(Map<String, Object> jwk) throws Exception {
-        String kty = (String) jwk.get("kty");
-        ObjectNode json = objectMapper.createObjectNode();
-
-        if ("RSA".equals(kty)) {
-            json.put("e", (String) jwk.get("e"));
-            json.put("kty", "RSA");
-            json.put("n", (String) jwk.get("n"));
-        } else if ("EC".equals(kty)) {
-            json.put("crv", (String) jwk.get("crv"));
-            json.put("kty", "EC");
-            json.put("x", (String) jwk.get("x"));
-            json.put("y", (String) jwk.get("y"));
-        } else {
-            throw new IllegalArgumentException("Unsupported key type: " + kty);
+    private static String sha256Base64Url(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
-
-        String jsonString = objectMapper.writeValueAsString(json);
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(jsonString.getBytes(StandardCharsets.UTF_8));
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
     }
 
-    /**
-     * Base64url encode a byte array (without padding).
-     */
-    private String base64UrlEncode(byte[] input) {
-        // Remove leading zero byte if present (BigInteger.toByteArray() may add it)
-        if (input.length > 0 && input[0] == 0) {
-            input = Arrays.copyOfRange(input, 1, input.length);
-        }
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(input);
-    }
-
-    /**
-     * Result class for DPoP key initialization.
-     */
     public static class DPoPKeyInfo {
         private final String keyId;
         private final Map<String, Object> publicKeyJwk;
@@ -434,6 +298,11 @@ public class DPoPKeyManager {
 
         public Map<String, Object> getPublicKeyJwk() {
             return publicKeyJwk;
+        }
+
+        @Override
+        public String toString() {
+            return "DPoPKeyInfo{keyId=" + sha256Base64Url(keyId) + "}";
         }
     }
 }

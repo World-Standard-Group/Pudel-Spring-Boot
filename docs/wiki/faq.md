@@ -283,7 +283,7 @@ docker-compose up -d
 ### How is authentication handled?
 
 - Discord OAuth for web dashboard
-- JWT tokens (RSA signed)
+- Ed25519-signed JWTs, held server-side and never exposed to the browser
 - Per-guild permissions checked
 
 ### Can plugins access other guilds' data?

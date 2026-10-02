@@ -226,7 +226,7 @@ public class PluginDatabaseManagerImpl implements PluginDatabaseManager {
                 sql.append(" NOT NULL");
             }
             if (col.defaultValue() != null) {
-                sql.append(" DEFAULT ").append(col.defaultValue());
+                sql.append(" DEFAULT ").append(formatDefaultValue(col.defaultValue(), col.type()));
             }
             sql.append(",\n");
         }
@@ -308,6 +308,43 @@ public class PluginDatabaseManagerImpl implements PluginDatabaseManager {
     public <T> PluginRepository<T> getRepository(String tableName, Class<T> entityClass) {
         return (PluginRepository<T>) repositories.computeIfAbsent(tableName,
                 name -> new PluginRepositoryImpl<>(this, name, entityClass, jdbcTemplate));
+    }
+
+    /**
+     * Get a repository for CRUD operations on a table, deriving the table name
+     * from the entity's {@code @Entity} annotation.
+     * <p>
+     * The table name is resolved in this order:
+     * <ol>
+     *   <li>An explicit {@code @Entity(tableName = "...")} attribute on the class.</li>
+     *   <li>Otherwise the class name converted from PascalCase to snake_case
+     *       (with a trailing {@code Entity} suffix stripped).</li>
+     * </ol>
+     * This is the same resolution order used by
+     * {@link #autoMigrate(Class[])} and {@link #createOrUpdateTable(Class)},
+     * so an entity mapped via {@code @Entity(tableName = "user_settings")} and a
+     * manual migration script that creates {@code user_settings} all line up to
+     * the same physical table.
+     * <p>
+     * The returned repository is cached against the resolved table name, so
+     * repeated calls with the same entity class (and calls that also pass the
+     * same table name explicitly) reuse a single instance.
+     *
+     * @param entityClass the entity class annotated with {@code @Entity}
+     * @param <T> the entity type
+     * @return a repository instance for the resolved table
+     * @throws IllegalArgumentException if {@code entityClass} is not annotated with
+     *     {@code @Entity}, or if {@code @Entity(tableName = "...")} is set but
+     *     violates the table-name naming rules
+     */
+    @Override
+    public <T> PluginRepository<T> getRepository(Class<T> entityClass) {
+        // Resolve table name from @Entity(tableName=...) or derive from class name.
+        // getTableNameFromEntity() enforces the @Entity presence + tableName
+        // naming convention, so any failure surfaces here with a clear message
+        // pointing at the offending entity, not deep inside a SQL exception.
+        String tableName = getTableNameFromEntity(entityClass);
+        return getRepository(tableName, entityClass);
     }
 
     /**
@@ -489,261 +526,396 @@ public class PluginDatabaseManagerImpl implements PluginDatabaseManager {
                 String.join(", ", columns));
         jdbcTemplate.execute(sql);
         logger.debug("Created index {} on {}", indexName, fullTableName);
-            }
+    }
 
-            /**
-             * Gets the current table schema by introspecting the database.
-             *
-             * @param tableName the table name (without prefix)
-             * @return TableSchema or null if table doesn't exist
-             */
-            @Override
-            public TableSchema getTableSchema(String tableName) {
-                if (!tableExistsInternal(tableName)) {
-                    return null;
-                }
+    /**
+     * Gets the current table schema by introspecting the database.
+     *
+     * @param tableName the table name (without prefix)
+     * @return TableSchema or null if table doesn't exist
+     */
+    @Override
+    public TableSchema getTableSchema(String tableName) {
+        if (!tableExistsInternal(tableName)) {
+            return null;
+        }
 
-                String fullTableName = getFullTableName(tableName);
-                String sql = """
+        String fullTableName = getFullTableName(tableName);
+        String sql = """
                     SELECT column_name, data_type, character_maximum_length, is_nullable, column_default
                     FROM information_schema.columns
                     WHERE table_schema = ? AND table_name = ?
                     ORDER BY ordinal_position
                     """;
 
-                List<Map<String, Object>> columns = jdbcTemplate.queryForList(sql, schemaName, tableName.toLowerCase());
-                if (columns.isEmpty()) {
-                    return null;
-                }
+        List<Map<String, Object>> columns = jdbcTemplate.queryForList(sql, schemaName, tableName.toLowerCase());
+        if (columns.isEmpty()) {
+            return null;
+        }
 
-                TableSchema.Builder builder = TableSchema.builder(tableName);
-                for (Map<String, Object> col : columns) {
-                    String colName = (String) col.get("column_name");
-                    // Skip auto-managed columns
-                    if (colName.equals("id") || colName.equals("created_at") || colName.equals("updated_at")) {
-                        continue;
-                    }
+        TableSchema.Builder builder = TableSchema.builder(tableName);
+        for (Map<String, Object> col : columns) {
+            String colName = (String) col.get("column_name");
+            // Skip auto-managed columns
+            if (colName.equals("id") || colName.equals("created_at") || colName.equals("updated_at")) {
+                continue;
+            }
 
-                    String dataType = (String) col.get("data_type");
-                    Integer charMaxLength = (Integer) col.get("character_maximum_length");
-                    String isNullable = (String) col.get("is_nullable");
-                    String columnDefault = (String) col.get("column_default");
+            String dataType = (String) col.get("data_type");
+            Integer charMaxLength = (Integer) col.get("character_maximum_length");
+            String isNullable = (String) col.get("is_nullable");
+            String columnDefault = (String) col.get("column_default");
 
-                    ColumnType type = mapPostgresTypeToColumnType(dataType, charMaxLength);
-                    boolean nullable = "YES".equalsIgnoreCase(isNullable);
-                    String defaultValue = columnDefault != null ? columnDefault.replace("::character varying", "").replace("::text", "").replace("::bpchar", "") : null;
+            ColumnType type = mapPostgresTypeToColumnType(dataType, charMaxLength);
+            boolean nullable = "YES".equalsIgnoreCase(isNullable);
+            String defaultValue = columnDefault != null ? columnDefault.replace("::character varying", "").replace("::text", "").replace("::bpchar", "") : null;
 
-                    if (type != null) {
-                        builder.column(colName, type, charMaxLength, nullable, defaultValue);
-                    }
-                }
+            if (type != null) {
+                builder.column(colName, type, charMaxLength, nullable, defaultValue);
+            }
+        }
 
-                // Get indexes
-                String indexSql = """
+        // Get indexes
+        String indexSql = """
                     SELECT indexname, indexdef
                     FROM pg_indexes
                     WHERE schemaname = ? AND tablename = ?
                     """;
-                List<Map<String, Object>> indexes = jdbcTemplate.queryForList(indexSql, schemaName, tableName.toLowerCase());
-                for (Map<String, Object> idx : indexes) {
-                    String indexDef = (String) idx.get("indexdef");
-                    boolean unique = indexDef.contains("UNIQUE INDEX");
-                    // Parse column names from index definition (simplified)
-                    // Format: CREATE [UNIQUE] INDEX idx_name ON schema.table (col1, col2)
-                    int parenStart = indexDef.indexOf('(');
-                    int parenEnd = indexDef.lastIndexOf(')');
-                    if (parenStart > 0 && parenEnd > parenStart) {
-                        String cols = indexDef.substring(parenStart + 1, parenEnd);
-                        String[] colNames = cols.split(",\\s*");
-                        if (unique) {
-                            builder.uniqueIndex(colNames);
-                        } else {
-                            builder.index(colNames);
-                        }
-                    }
-                }
-
-                return builder.build();
-            }
-
-            /**
-             * Creates or updates a table from an entity class.
-             * If table doesn't exist, creates it with full schema.
-             * If table exists, adds missing columns and indexes.
-             *
-             * @param entityClass the entity class annotated with @Entity
-             * @return true if table was created or modified
-             */
-            @Override
-            @Transactional
-            public <T> boolean createOrUpdateTable(Class<T> entityClass) {
-                // Verify @Entity annotation
-                if (!entityClass.isAnnotationPresent(Entity.class)) {
-                    throw new IllegalArgumentException("Class must be annotated with @Entity: " + entityClass.getName());
-                }
-
-                // Build desired schema from entity
-                TableSchema desiredSchema = TableSchema.builder(getTableNameFromEntity(entityClass))
-                        .fromEntity(entityClass)
-                        .build();
-
-                // Create or update
-                if (!tableExistsInternal(desiredSchema.getTableName())) {
-                    return createTable(desiredSchema);
+        List<Map<String, Object>> indexes = jdbcTemplate.queryForList(indexSql, schemaName, tableName.toLowerCase());
+        for (Map<String, Object> idx : indexes) {
+            String indexDef = (String) idx.get("indexdef");
+            boolean unique = indexDef.contains("UNIQUE INDEX");
+            // Parse column names from index definition (simplified)
+            // Format: CREATE [UNIQUE] INDEX idx_name ON schema.table (col1, col2)
+            int parenStart = indexDef.indexOf('(');
+            int parenEnd = indexDef.lastIndexOf(')');
+            if (parenStart > 0 && parenEnd > parenStart) {
+                String cols = indexDef.substring(parenStart + 1, parenEnd);
+                String[] colNames = cols.split(",\\s*");
+                if (unique) {
+                    builder.uniqueIndex(colNames);
                 } else {
-                    return updateTableFromSchema(desiredSchema);
+                    builder.index(colNames);
                 }
             }
+        }
 
-            /**
-             * Automatically migrates tables to match entity classes.
-             * Only applies additive changes (add columns, add indexes).
-             *
-             * @param entityClasses the entity classes to migrate to
-             * @return true if any changes were applied
-             */
-            @Override
-            @Transactional
-            public boolean autoMigrate(Class<?>... entityClasses) {
-                boolean anyChanged = false;
+        return builder.build();
+    }
 
-                for (Class<?> entityClass : entityClasses) {
-                    if (!entityClass.isAnnotationPresent(Entity.class)) {
-                        logger.warn("Skipping {} - not annotated with @Entity", entityClass.getName());
-                        continue;
-                    }
+    /**
+     * Creates or updates a table from an entity class, using an explicit
+     * table name.
+     * <p>
+     * This is the legacy-smooth-migration overload: callers who used to do
+     * {@code createTable(TableSchema.builder("user_settings")...)} can swap to
+     * {@code createOrUpdateTable("user_settings", UserSettingEntity.class)} without
+     * first having to annotate their POJO with
+     * {@code @Entity(tableName = "user_settings")}. Once the migration is complete,
+     * they can drop the explicit name and switch to the single-arg
+     * {@link #createOrUpdateTable(Class)} form.
+     * <p>
+     * The explicit {@code tableName} overrides any
+     * {@code @Entity(tableName = "...")} attribute on the class — the value here
+     * is what the table will be named in the database, and the annotation is
+     * ignored for this call. The name is validated against the same naming rules
+     * as {@code TableSchema.Builder} (lowercase, starts with a letter, max 50 chars)
+     * so a bad value fails fast with a clear message at the call site rather than
+     * producing a confusing SQL syntax error later.
+     *
+     * @param tableName the explicit database table name to use (overrides
+     *     {@code @Entity(tableName = "...")} for this call)
+     * @param entityClass the entity class annotated with {@code @Entity}
+     * @param <T> the entity type
+     * @return true if the table was created or modified
+     * @throws IllegalArgumentException if {@code entityClass} is not annotated with
+     *     {@code @Entity}, or if {@code tableName} violates the table-name naming rules
+     */
+    @Override
+    @Transactional
+    public <T> boolean createOrUpdateTable(String tableName, Class<T> entityClass) {
+        // Verify @Entity annotation up front — a missing annotation would
+        // otherwise surface much later as a confusing "no @Column fields found"
+        // error from TableSchema.Builder.fromEntity().
+        if (!entityClass.isAnnotationPresent(Entity.class)) {
+            throw new IllegalArgumentException(
+                    "Class must be annotated with @Entity: " + entityClass.getName());
+        }
 
-                    String tableName = getTableNameFromEntity(entityClass);
+        // Validate the explicit table name using the same rules as
+        // TableSchema.Builder.validateTableName, so a bad name is rejected here
+        // with a clear "@Entity tableName ..." message rather than producing a
+        // SQL syntax error deep inside createTable().
+        String resolvedTableName = validateExplicitTableName(tableName);
 
-                    if (!tableExistsInternal(tableName)) {
-                        // Table doesn't exist - create it
-                        boolean created = createOrUpdateTable(entityClass);
-                        anyChanged = anyChanged || created;
-                    } else {
-                        // Table exists - compare and add missing columns/indexes
-                        boolean updated = updateTableFromEntity(entityClass);
-                        anyChanged = anyChanged || updated;
-                    }
-                }
+        // Build desired schema from entity using the explicit name, NOT whatever
+        // @Entity(tableName=...) would say — the caller's explicit choice wins
+        // for this call. The annotation is ignored here, which is the whole point
+        // of having an explicit-name overload: callers can opt in to entity-driven
+        // schema without yet having annotated their POJO.
+        TableSchema desiredSchema = TableSchema.builder(resolvedTableName)
+                .fromEntity(entityClass)
+                .build();
 
-                return anyChanged;
+        // Same create-or-update branching as the single-arg form.
+        if (!tableExistsInternal(resolvedTableName)) {
+            return createTable(desiredSchema);
+        } else {
+            return updateTableFromSchema(desiredSchema);
+        }
+    }
+
+    /**
+     * Creates or updates a table from an entity class.
+     * If table doesn't exist, creates it with full schema.
+     * If table exists, adds missing columns and indexes.
+     *
+     * @param entityClass the entity class annotated with @Entity
+     * @return true if table was created or modified
+     */
+    @Override
+    @Transactional
+    public <T> boolean createOrUpdateTable(Class<T> entityClass) {
+        // Verify @Entity annotation
+        if (!entityClass.isAnnotationPresent(Entity.class)) {
+            throw new IllegalArgumentException("Class must be annotated with @Entity: " + entityClass.getName());
+        }
+
+        // Build desired schema from entity
+        TableSchema desiredSchema = TableSchema.builder(getTableNameFromEntity(entityClass))
+                .fromEntity(entityClass)
+                .build();
+
+        // Create or update
+        if (!tableExistsInternal(desiredSchema.getTableName())) {
+            return createTable(desiredSchema);
+        } else {
+            return updateTableFromSchema(desiredSchema);
+        }
+    }
+
+    /**
+     * Automatically migrates tables to match entity classes.
+     * Only applies additive changes (add columns, add indexes).
+     *
+     * @param entityClasses the entity classes to migrate to
+     * @return true if any changes were applied
+     */
+    @Override
+    @Transactional
+    public boolean autoMigrate(Class<?>... entityClasses) {
+        boolean anyChanged = false;
+
+        for (Class<?> entityClass : entityClasses) {
+            if (!entityClass.isAnnotationPresent(Entity.class)) {
+                logger.warn("Skipping {} - not annotated with @Entity", entityClass.getName());
+                continue;
             }
 
-            /**
-             * Extracts table name from entity class name (converts PascalCase to snake_case).
-             */
-            private String getTableNameFromEntity(Class<?> entityClass) {
-                String className = entityClass.getSimpleName();
-                // Remove "Entity" suffix if present
-                if (className.endsWith("Entity")) {
-                    className = className.substring(0, className.length() - 6);
-                }
-                // Convert PascalCase to snake_case
-                return className.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
+            String tableName = getTableNameFromEntity(entityClass);
+
+            if (!tableExistsInternal(tableName)) {
+                // Table doesn't exist - create it
+                boolean created = createOrUpdateTable(entityClass);
+                anyChanged = anyChanged || created;
+            } else {
+                // Table exists - compare and add missing columns/indexes
+                boolean updated = updateTableFromEntity(entityClass);
+                anyChanged = anyChanged || updated;
             }
+        }
 
-            /**
-             * Updates an existing table by adding missing columns and indexes from desired schema.
-             */
-            private boolean updateTableFromSchema(TableSchema desiredSchema) {
-                String tableName = desiredSchema.getTableName();
-                String fullTableName = getFullTableName(tableName);
-                boolean anyChanged = false;
+        return anyChanged;
+    }
 
-                // Get current columns
-                String sql = """
+    /**
+     * Resolves the database table name for an entity class.
+     * <p>
+     * Resolution order:
+     * <ol>
+     *   <li>If {@code @Entity(tableName = "...")} is set, that value is used
+     *       (after validation) so the auto-migrator targets exactly the same
+     *       table the manual migration scripts created.</li>
+     *   <li>Otherwise the class name is converted from PascalCase to
+     *       snake_case (with a trailing {@code Entity} suffix stripped).</li>
+     * </ol>
+     * The explicit {@code tableName} must follow the same naming rules as
+     * {@code TableSchema.Builder} — lowercase letters, digits, and
+     * underscores, starting with a lowercase letter, max 50 chars.
+     */
+    private String getTableNameFromEntity(Class<?> entityClass) {
+        Entity entityAnnotation = entityClass.getAnnotation(Entity.class);
+        if (entityAnnotation != null) {
+            String explicit = entityAnnotation.tableName();
+            if (explicit != null && !explicit.isEmpty()) {
+                return validateExplicitTableName(explicit);
+            }
+        }
+
+        String className = entityClass.getSimpleName();
+        // Remove "Entity" suffix if present
+        if (className.endsWith("Entity")) {
+            className = className.substring(0, className.length() - 6);
+        }
+        // Convert PascalCase to snake_case
+        return className.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
+    }
+
+    /**
+     * Validates an explicit {@code @Entity(tableName = "...")} value against
+     * the same naming rules used by {@code TableSchema.Builder.validateTableName}.
+     * <p>
+     * Catching the mismatch at startup is critical: an invalid table name
+     * would otherwise be silently passed to Postgres, producing a confusing
+     * SQL syntax error deep inside {@code createTable} instead of a clear,
+     * actionable failure next to the entity definition.
+     */
+    private String validateExplicitTableName(String name) {
+        Objects.requireNonNull(name, "@Entity tableName cannot be null");
+        if (!name.matches("^[a-z][a-z0-9_]*$")) {
+            throw new IllegalArgumentException(
+                    "@Entity tableName must start with a lowercase letter and contain only lowercase letters, numbers, and underscores: " + name);
+        }
+        if (name.length() > 50) {
+            throw new IllegalArgumentException("@Entity tableName too long (max 50 chars): " + name);
+        }
+        return name;
+    }
+
+    /**
+     * Updates an existing table by adding missing columns and indexes from desired schema.
+     */
+    private boolean updateTableFromSchema(TableSchema desiredSchema) {
+        String tableName = desiredSchema.getTableName();
+        String fullTableName = getFullTableName(tableName);
+        boolean anyChanged = false;
+
+        // Get current columns
+        String sql = """
                     SELECT column_name, data_type, character_maximum_length, is_nullable, column_default
                     FROM information_schema.columns
                     WHERE table_schema = ? AND table_name = ?
                     """;
-                List<Map<String, Object>> currentColumns = jdbcTemplate.queryForList(sql, schemaName, tableName.toLowerCase());
-                Set<String> existingColumnNames = currentColumns.stream()
-                        .map(col -> (String) col.get("column_name"))
-                        .collect(Collectors.toSet());
+        List<Map<String, Object>> currentColumns = jdbcTemplate.queryForList(sql, schemaName, tableName.toLowerCase());
+        Set<String> existingColumnNames = currentColumns.stream()
+                .map(col -> (String) col.get("column_name"))
+                .collect(Collectors.toSet());
 
-                // Add missing columns
-                for (TableSchema.ColumnDefinition desiredCol : desiredSchema.getColumns()) {
-                    if (!existingColumnNames.contains(desiredCol.name())) {
-                        StringBuilder alterSql = new StringBuilder();
-                        alterSql.append("ALTER TABLE ").append(fullTableName);
-                        alterSql.append(" ADD COLUMN IF NOT EXISTS ").append(desiredCol.name()).append(" ");
-                        alterSql.append(desiredCol.type().getSqlType(desiredCol.size()));
-                        if (!desiredCol.nullable()) {
-                            alterSql.append(" NOT NULL");
-                        }
-                        if (desiredCol.defaultValue() != null) {
-                            alterSql.append(" DEFAULT ").append(desiredCol.defaultValue());
-                        }
-                        jdbcTemplate.execute(alterSql.toString());
-                        logger.info("Added column {} to table {}", desiredCol.name(), tableName);
-                        anyChanged = true;
-                    }
+        // Add missing columns
+        for (TableSchema.ColumnDefinition desiredCol : desiredSchema.getColumns()) {
+            if (!existingColumnNames.contains(desiredCol.name())) {
+                StringBuilder alterSql = new StringBuilder();
+                alterSql.append("ALTER TABLE ").append(fullTableName);
+                alterSql.append(" ADD COLUMN IF NOT EXISTS ").append(desiredCol.name()).append(" ");
+                alterSql.append(desiredCol.type().getSqlType(desiredCol.size()));
+                if (!desiredCol.nullable()) {
+                    alterSql.append(" NOT NULL");
                 }
+                if (desiredCol.defaultValue() != null) {
+                    alterSql.append(" DEFAULT ").append(formatDefaultValue(desiredCol.defaultValue(), desiredCol.type()));
+                }
+                jdbcTemplate.execute(alterSql.toString());
+                logger.info("Added column {} to table {}", desiredCol.name(), tableName);
+                anyChanged = true;
+            }
+        }
 
-                // Get current indexes
-                String indexSql = """
+        // Get current indexes
+        String indexSql = """
                     SELECT indexname, indexdef
                     FROM pg_indexes
                     WHERE schemaname = ? AND tablename = ?
                     """;
-                List<Map<String, Object>> currentIndexes = jdbcTemplate.queryForList(indexSql, schemaName, tableName.toLowerCase());
-                Set<String> existingIndexCols = new HashSet<>();
-                for (Map<String, Object> idx : currentIndexes) {
-                    String indexDef = (String) idx.get("indexdef");
-                    int parenStart = indexDef.indexOf('(');
-                    int parenEnd = indexDef.lastIndexOf(')');
-                    if (parenStart > 0 && parenEnd > parenStart) {
-                        String cols = indexDef.substring(parenStart + 1, parenEnd);
-                        String[] colNames = cols.split(",\\s*");
-                        existingIndexCols.add(String.join(",", colNames));
-                    }
-                }
-
-                // Add missing indexes
-                for (TableSchema.IndexDefinition desiredIdx : desiredSchema.getIndexes()) {
-                    String idxKey = String.join(",", desiredIdx.columns());
-                    if (!existingIndexCols.contains(idxKey)) {
-                        createIndexInternal(fullTableName, desiredIdx.unique(), desiredIdx.columns().toArray(new String[0]));
-                        anyChanged = true;
-                    }
-                }
-
-                return anyChanged;
-            }
-
-            /**
-             * Updates an existing table by comparing with entity class.
-             */
-            private <T> boolean updateTableFromEntity(Class<T> entityClass) {
-                String tableName = getTableNameFromEntity(entityClass);
-                TableSchema desiredSchema = TableSchema.builder(tableName)
-                        .fromEntity(entityClass)
-                        .build();
-                return updateTableFromSchema(desiredSchema);
-            }
-
-            /**
-             * Maps PostgreSQL data type to ColumnType.
-             */
-            private ColumnType mapPostgresTypeToColumnType(String pgType, Integer charMaxLength) {
-                return switch (pgType.toLowerCase()) {
-                    case "bigint" -> ColumnType.BIGINT;
-                    case "integer", "int" -> ColumnType.INTEGER;
-                    case "smallint" -> ColumnType.SMALLINT;
-                    case "boolean", "bool" -> ColumnType.BOOLEAN;
-                    case "character varying", "varchar" -> ColumnType.STRING;
-                    case "text" -> ColumnType.TEXT;
-                    case "timestamp with time zone", "timestamptz" -> ColumnType.TIMESTAMP;
-                    case "timestamp without time zone", "timestamp" -> ColumnType.TIMESTAMP;
-                    case "date" -> ColumnType.DATE;
-                    case "time without time zone", "time" -> ColumnType.TIME;
-                    case "numeric" -> ColumnType.DECIMAL;
-                    case "double precision" -> ColumnType.DOUBLE;
-                    case "real" -> ColumnType.FLOAT;
-                    case "jsonb" -> ColumnType.JSON;
-                    case "bytea" -> ColumnType.BINARY;
-                    case "uuid" -> ColumnType.UUID;
-                    default -> null;
-                };
+        List<Map<String, Object>> currentIndexes = jdbcTemplate.queryForList(indexSql, schemaName, tableName.toLowerCase());
+        Set<String> existingIndexCols = new HashSet<>();
+        for (Map<String, Object> idx : currentIndexes) {
+            String indexDef = (String) idx.get("indexdef");
+            int parenStart = indexDef.indexOf('(');
+            int parenEnd = indexDef.lastIndexOf(')');
+            if (parenStart > 0 && parenEnd > parenStart) {
+                String cols = indexDef.substring(parenStart + 1, parenEnd);
+                String[] colNames = cols.split(",\\s*");
+                existingIndexCols.add(String.join(",", colNames));
             }
         }
+
+        // Add missing indexes
+        for (TableSchema.IndexDefinition desiredIdx : desiredSchema.getIndexes()) {
+            String idxKey = String.join(",", desiredIdx.columns());
+            if (!existingIndexCols.contains(idxKey)) {
+                createIndexInternal(fullTableName, desiredIdx.unique(), desiredIdx.columns().toArray(new String[0]));
+                anyChanged = true;
+            }
+        }
+
+        return anyChanged;
+    }
+
+    /**
+     * Updates an existing table by comparing with entity class.
+     */
+    private <T> boolean updateTableFromEntity(Class<T> entityClass) {
+        String tableName = getTableNameFromEntity(entityClass);
+        TableSchema desiredSchema = TableSchema.builder(tableName)
+                .fromEntity(entityClass)
+                .build();
+        return updateTableFromSchema(desiredSchema);
+    }
+
+    /**
+     * Maps PostgreSQL data type to ColumnType.
+     */
+    private ColumnType mapPostgresTypeToColumnType(String pgType, Integer charMaxLength) {
+        return switch (pgType.toLowerCase()) {
+            case "bigint" -> ColumnType.BIGINT;
+            case "integer", "int" -> ColumnType.INTEGER;
+            case "smallint" -> ColumnType.SMALLINT;
+            case "boolean", "bool" -> ColumnType.BOOLEAN;
+            case "character varying", "varchar" -> ColumnType.STRING;
+            case "text" -> ColumnType.TEXT;
+            case "timestamp with time zone", "timestamptz" -> ColumnType.TIMESTAMP;
+            case "timestamp without time zone", "timestamp" -> ColumnType.TIMESTAMP;
+            case "date" -> ColumnType.DATE;
+            case "time without time zone", "time" -> ColumnType.TIME;
+            case "numeric" -> ColumnType.DECIMAL;
+            case "double precision" -> ColumnType.DOUBLE;
+            case "real" -> ColumnType.FLOAT;
+            case "jsonb" -> ColumnType.JSON;
+            case "bytea" -> ColumnType.BINARY;
+            case "uuid" -> ColumnType.UUID;
+            default -> null;
+        };
+    }
+
+    /**
+     * Formats a default value for SQL based on the column type.
+     * String types get single-quoted, other types are used as-is.
+     */
+    private String formatDefaultValue(String defaultValue, ColumnType type) {
+        // Keywords that should not be quoted
+        String upper = defaultValue.trim().toUpperCase();
+        if (upper.equals("CURRENT_TIMESTAMP")
+                || upper.equals("CURRENT_DATE")
+                || upper.equals("CURRENT_TIME")
+                || upper.equals("NOW()")
+                || upper.equals("DEFAULT")
+                || upper.equals("NULL")
+                || upper.equals("TRUE")
+                || upper.equals("FALSE")
+                || upper.startsWith("NEXTVAL(")
+                || upper.startsWith("GEN_RANDOM_UUID()")
+                || upper.startsWith("UUID_GENERATE_V4()")) {
+            return defaultValue;
+        }
+
+        // For string/text types, wrap in single quotes and escape existing single quotes
+        if (type == ColumnType.STRING || type == ColumnType.TEXT
+                || type == ColumnType.UUID || type == ColumnType.JSON) {
+            String escaped = defaultValue.replace("'", "''");
+            return "'" + escaped + "'";
+        }
+
+        // For other types (numeric, boolean, etc.), use as-is
+        return defaultValue;
+    }
+}

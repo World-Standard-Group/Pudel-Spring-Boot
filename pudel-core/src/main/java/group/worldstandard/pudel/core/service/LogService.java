@@ -15,38 +15,30 @@
 package group.worldstandard.pudel.core.service;
 
 import group.worldstandard.pudel.core.service.InMemoryLogAppender.LogEntry;
+import group.worldstandard.pudel.core.websocket.AdminLogWebSocketHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Service layer for streaming application logs to admin clients via SSE.
- * <p>
- * Reads from the {@link InMemoryLogAppender} static ring buffer and
- * manages active {@link SseEmitter} connections for real-time streaming.
+ * Service layer for streaming application logs to authenticated admin WebSockets.
+ * Reads from the {@link InMemoryLogAppender} ring buffer and delegates live push to
+ * {@link AdminLogWebSocketHandler}; there is no client heartbeat/polling interaction.
  */
 @Service
 public class LogService {
     private static final Logger log = LoggerFactory.getLogger(LogService.class);
 
-    /** Active SSE emitters (one per connected admin client). */
-    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    private final AdminLogWebSocketHandler adminLogWebSocketHandler;
 
-    public LogService() {
-        // Subscribe to new log entries from the Logback appender
+    public LogService(AdminLogWebSocketHandler adminLogWebSocketHandler) {
+        this.adminLogWebSocketHandler = adminLogWebSocketHandler;
         InMemoryLogAppender.addListener(this::broadcastLogEntry);
-        log.info("LogService initialized — subscribed to InMemoryLogAppender");
+        log.info("LogService initialized — subscribed to InMemoryLogAppender over WebSocket");
     }
-
-    // ------------------------------------------------------------------
-    // REST helpers
-    // ------------------------------------------------------------------
 
     /**
      * Get the last {@code count} log entries, optionally filtered by level.
@@ -91,7 +83,7 @@ public class LogService {
         return Map.of(
                 "bufferSize", InMemoryLogAppender.getBufferSize(),
                 "maxSize", InMemoryLogAppender.MAX_ENTRIES,
-                "activeStreams", emitters.size(),
+                "activeStreams", adminLogWebSocketHandler.getActiveSessionCount(),
                 "errorCount", errorCount,
                 "warnCount", warnCount,
                 "infoCount", infoCount,
@@ -99,79 +91,13 @@ public class LogService {
         );
     }
 
-    // ------------------------------------------------------------------
-    // SSE streaming
-    // ------------------------------------------------------------------
-
     /**
-     * Create a new SSE emitter for real-time log streaming.
-     *
-     * @param sendHistory if true, send the last 200 entries immediately
-     * @return a configured {@link SseEmitter}
-     */
-    public SseEmitter createStream(boolean sendHistory) {
-        // 30 minute timeout for long-lived log streams
-        SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
-
-        emitter.onCompletion(() -> {
-            emitters.remove(emitter);
-            log.debug("Log SSE stream completed. Active streams: {}", emitters.size());
-        });
-        emitter.onTimeout(() -> {
-            emitters.remove(emitter);
-            log.debug("Log SSE stream timed out. Active streams: {}", emitters.size());
-        });
-        emitter.onError(e -> {
-            emitters.remove(emitter);
-            log.debug("Log SSE stream error: {}. Active streams: {}", e.getMessage(), emitters.size());
-        });
-
-        emitters.add(emitter);
-        log.debug("New log SSE stream created. Active streams: {}", emitters.size());
-
-        // Send recent history first
-        if (sendHistory) {
-            try {
-                List<LogEntry> history = InMemoryLogAppender.getLastEntries(200);
-                for (LogEntry entry : history) {
-                    emitter.send(SseEmitter.event()
-                            .name("log")
-                            .data(entry));
-                }
-                emitter.send(SseEmitter.event()
-                        .name("info")
-                        .data(Map.of("message", "History loaded", "count", history.size())));
-            } catch (IOException e) {
-                emitters.remove(emitter);
-                log.debug("Failed to send history to SSE emitter: {}", e.getMessage());
-            }
-        }
-
-        return emitter;
-    }
-
-    // ------------------------------------------------------------------
-    // Internal
-    // ------------------------------------------------------------------
-
-    /**
-     * Broadcast a log entry to all active SSE emitters.
+     * Broadcast a log entry to all authenticated admin WebSocket sessions.
      */
     private void broadcastLogEntry(LogEntry entry) {
-        List<SseEmitter> deadEmitters = new java.util.ArrayList<>();
-
-        for (SseEmitter emitter : emitters) {
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("log")
-                        .data(entry));
-            } catch (IOException | IllegalStateException e) {
-                deadEmitters.add(emitter);
-            }
-        }
-
-        if (!deadEmitters.isEmpty()) {
-            emitters.removeAll(deadEmitters);
+        int delivered = adminLogWebSocketHandler.broadcast(Map.of("type", "log", "entry", entry));
+        if (delivered == 0) {
+            log.trace("No active admin log WebSocket sessions for log entry");
         }
     }
 

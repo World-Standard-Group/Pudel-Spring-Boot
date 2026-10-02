@@ -19,8 +19,9 @@
 package group.worldstandard.pudel.api.database;
 
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
+import java.time.*;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,8 +87,8 @@ public final class TableSchema {
 
     private TableSchema(Builder builder) {
         this.tableName = builder.tableName;
-        this.columns = Collections.unmodifiableList(new ArrayList<>(builder.columns));
-        this.indexes = Collections.unmodifiableList(new ArrayList<>(builder.indexes));
+        this.columns = List.copyOf(builder.columns);
+        this.indexes = List.copyOf(builder.indexes);
     }
 
     /**
@@ -265,10 +266,10 @@ public final class TableSchema {
          *   <li>{@code Short}, {@code short} -> {@link ColumnType#SMALLINT}</li>
          *   <li>{@code Boolean}, {@code boolean} -> {@link ColumnType#BOOLEAN}</li>
          *   <li>{@code String} -> {@link ColumnType#STRING} (size 255) or {@link ColumnType#TEXT}</li>
-         *   <li>{@code java.time.Instant}, {@code java.time.LocalDateTime}, {@code java.time.OffsetDateTime} -> {@link ColumnType#TIMESTAMP}</li>
-         *   <li>{@code java.time.LocalDate} -> {@link ColumnType#DATE}</li>
-         *   <li>{@code java.time.LocalTime} -> {@link ColumnType#TIME}</li>
-         *   <li>{@code java.math.BigDecimal} -> {@link ColumnType#DECIMAL}</li>
+         *   <li>{@code Instant}, {@code LocalDateTime}, {@code OffsetDateTime} -> {@link ColumnType#TIMESTAMP}</li>
+         *   <li>{@code LocalDate} -> {@link ColumnType#DATE}</li>
+         *   <li>{@code LocalTime} -> {@link ColumnType#TIME}</li>
+         *   <li>{@code BigDecimal} -> {@link ColumnType#DECIMAL}</li>
          *   <li>{@code Double}, {@code double} -> {@link ColumnType#DOUBLE}</li>
          *   <li>{@code Float}, {@code float} -> {@link ColumnType#FLOAT}</li>
          *   <li>{@code java.util.UUID} -> {@link ColumnType#UUID}</li>
@@ -339,16 +340,25 @@ public final class TableSchema {
             }
 
             // Add indexes from @Column annotations
+            // Collect all unique columns to create a composite unique index (matching TableSchema.uniqueIndex behavior)
+            List<String> uniqueColumns = new ArrayList<>();
+            List<String> indexColumns = new ArrayList<>();
             for (Map.Entry<String, Column> entry : fieldToAnnotation.entrySet()) {
                 String fieldName = entry.getKey();
                 String columnName = fieldToColumn.get(fieldName);
                 if (columnName == null) continue; // Was skipped (auto-managed)
                 Column ann = entry.getValue();
                 if (ann.unique()) {
-                    indexes.add(new IndexDefinition(true, List.of(columnName)));
+                    uniqueColumns.add(columnName);
                 } else if (ann.index()) {
-                    indexes.add(new IndexDefinition(false, List.of(columnName)));
+                    indexColumns.add(columnName);
                 }
+            }
+            if (!uniqueColumns.isEmpty()) {
+                indexes.add(new IndexDefinition(true, uniqueColumns));
+            }
+            for (String col : indexColumns) {
+                indexes.add(new IndexDefinition(false, List.of(col)));
             }
 
             return this;
@@ -411,20 +421,20 @@ public final class TableSchema {
             }
 
             // java.time types
-            if (type == java.time.Instant.class
-                    || type == java.time.LocalDateTime.class
-                    || type == java.time.OffsetDateTime.class) {
+            if (type == Instant.class
+                    || type == LocalDateTime.class
+                    || type == OffsetDateTime.class) {
                 return new ColumnDefinition(columnName, ColumnType.TIMESTAMP, null, nullable, defaultValue);
             }
-            if (type == java.time.LocalDate.class) {
+            if (type == LocalDate.class) {
                 return new ColumnDefinition(columnName, ColumnType.DATE, null, nullable, defaultValue);
             }
-            if (type == java.time.LocalTime.class) {
+            if (type == LocalTime.class) {
                 return new ColumnDefinition(columnName, ColumnType.TIME, null, nullable, defaultValue);
             }
 
             // java.math.BigDecimal
-            if (type == java.math.BigDecimal.class) {
+            if (type == BigDecimal.class) {
                 return new ColumnDefinition(columnName, ColumnType.DECIMAL, null, nullable, defaultValue);
             }
 

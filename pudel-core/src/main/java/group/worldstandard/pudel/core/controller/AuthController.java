@@ -27,6 +27,9 @@ import org.springframework.web.bind.annotation.*;
 import group.worldstandard.pudel.core.dto.OAuthCallbackRequest;
 import group.worldstandard.pudel.core.dto.OAuthCallbackResponse;
 import group.worldstandard.pudel.core.service.AuthService;
+import group.worldstandard.pudel.core.service.DPoPKeyManager;
+import group.worldstandard.pudel.core.session.SessionCookieService;
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * REST controller for authentication endpoints.
@@ -64,43 +67,42 @@ public class AuthController {
     private static final String DPOP_KEY_ID_HEADER = "X-DPoP-Key-Id";
 
     private final AuthService authService;
+    private final SessionCookieService cookieService;
+    private final DPoPKeyManager dpopKeyManager;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService,
+                          SessionCookieService cookieService,
+                          DPoPKeyManager dpopKeyManager) {
         this.authService = authService;
+        this.cookieService = cookieService;
+        this.dpopKeyManager = dpopKeyManager;
     }
 
     /**
      * Handle Discord OAuth2 callback.
      * POST /api/auth/discord/callback
      * <p>
-     * For DPoP-bound tokens, include a DPoP proof in the "DPoP" header.
-     * The response will indicate the token_type as "DPoP" or "Bearer".
+     * The browser's encrypted cookie identifies the database session. The resulting JWT is
+     * stored in that session row and is never returned to the SPA.
      */
-    @Operation(summary = "Discord OAuth2 callback", description = "Exchange Discord authorization code for a JWT token. Include DPoP header for proof-of-possession binding.")
+    @Operation(summary = "Discord OAuth2 callback",
+            description = "Exchange the Discord authorization code and bind the server-held token to the encrypted browser session.")
     @PostMapping("/discord/callback")
     public ResponseEntity<?> discordCallback(@RequestBody OAuthCallbackRequest request,
-                                             @RequestHeader(value = DPOP_HEADER, required = false) String dpopProof,
-                                             @RequestHeader(value = DPOP_KEY_ID_HEADER, required = false) String dpopKeyId,
                                              HttpServletRequest httpRequest) {
-        log.info("Received OAuth callback request (DPoP: {})", dpopProof != null);
-
         if (request.getCode() == null || request.getCode().isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse("Authorization code is required"));
         }
 
-        // Build request URI for DPoP validation
-        String httpUri = httpRequest.getRequestURL().toString();
-        String httpMethod = httpRequest.getMethod();
+        String browserKeyId = cookieService.readKeyId(httpRequest).orElse(null);
+        if (browserKeyId == null || dpopKeyManager.findActiveSession(browserKeyId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Missing or invalid browser session"));
+        }
 
-        // Use database-backed key validation (keyId from header)
         OAuthCallbackResponse response = authService.handleOAuthCallback(
-                request.getCode(),
-                dpopProof,
-                httpMethod,
-                httpUri,
-                dpopKeyId
-        );
+                request.getCode(), browserKeyId);
 
         if (response == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -113,49 +115,21 @@ public class AuthController {
     }
 
     /**
-     * Refresh an existing DPoP-bound session without a full Discord re-login.
+     * Refresh the server-held session without exposing any token or proof to the SPA.
      * POST /api/auth/refresh
-     * <p>
-     * The client sends its current (still-valid) DPoP-bound access token in the
-     * Authorization: DPoP <token> header, plus a fresh DPoP proof in the "DPoP" header
-     * and the key id in X-DPoP-Key-Id. The server re-validates the binding, refreshes
-     * the Discord access token server-side using the stored refresh token, and returns a new
-     * DPoP-bound access token bound to the SAME key thumbprint. This is the RFC 9449
-     * BFF refresh flow that prevents the "key mismatch 401 → forced re-login" on restart.
      */
-    @Operation(summary = "Refresh DPoP-bound session",
-            description = "Re-issue a DPoP-bound token bound to the same key, refreshing the Discord token server-side. No full re-login required.")
+    @Operation(summary = "Refresh the encrypted browser session",
+            description = "Re-issues the server-held DPoP-bound token using only the encrypted browser cookie.")
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestHeader(value = DPOP_HEADER, required = false) String dpopProof,
-            @RequestHeader(value = DPOP_KEY_ID_HEADER, required = false) String dpopKeyId,
-            HttpServletRequest httpRequest) {
-
-        if (authHeader == null || dpopProof == null) {
+    public ResponseEntity<?> refresh(HttpServletRequest httpRequest) {
+        String browserKeyId = cookieService.readKeyId(httpRequest).orElse(null);
+        if (browserKeyId == null || dpopKeyManager.findActiveSession(browserKeyId).isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ErrorResponse("Missing Authorization or DPoP proof for refresh"));
+                    .body(new ErrorResponse("Missing or invalid browser session"));
         }
 
-        String token = null;
-        if (authHeader.startsWith("DPoP ")) {
-            token = authHeader.substring(5);
-        } else if (authHeader.startsWith("Bearer ")) {
-            token = authHeader.substring(7);
-        }
-        if (token == null || token.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ErrorResponse("Invalid Authorization scheme for refresh"));
-        }
-
-        String httpUri = httpRequest.getRequestURL().toString();
-        String httpMethod = httpRequest.getMethod();
-
-        OAuthCallbackResponse response = authService.refresh(
-                dpopProof, httpMethod, httpUri, dpopKeyId, token);
-
+        OAuthCallbackResponse response = authService.refresh(browserKeyId);
         if (response == null) {
-            // Refresh impossible (token revoked, key desync, refresh token invalid) → force re-login.
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse("Session cannot be refreshed; please log in again"));
         }
@@ -164,24 +138,39 @@ public class AuthController {
     }
 
     /**
-     * Logout endpoint - revokes token binding for DPoP tokens.
+     * Return the user bound to the encrypted browser session.
+     * GET /api/auth/me
+     */
+    @Operation(summary = "Get the authenticated user",
+            description = "Restores user state after a page refresh using only the encrypted cookie.")
+    @GetMapping("/me")
+    public ResponseEntity<?> me(HttpServletRequest httpRequest) {
+        String browserKeyId = cookieService.readKeyId(httpRequest).orElse(null);
+        if (browserKeyId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Missing browser session"));
+        }
+
+        var user = authService.getCurrentUser(browserKeyId);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Browser session is not authenticated"));
+        }
+
+        return ResponseEntity.ok(user);
+    }
+
+    /**
+     * Logout endpoint - revokes and clears the encrypted browser session.
      * POST /api/auth/logout
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        if (authHeader != null) {
-            String token = null;
-            if (authHeader.startsWith("DPoP ")) {
-                token = authHeader.substring(5);
-            } else if (authHeader.startsWith("Bearer ")) {
-                token = authHeader.substring(7);
-            }
-
-            if (token != null) {
-                authService.revokeToken(token);
-                log.info("Token revoked on logout");
-            }
-        }
+    public ResponseEntity<?> logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        cookieService.readKeyId(httpRequest).ifPresent(keyId -> {
+            dpopKeyManager.clearKeyPair(keyId);
+            log.info("Revoked browser session on logout");
+        });
+        cookieService.clearCookie(httpResponse);
 
         return ResponseEntity.ok().body(new SuccessResponse("Logged out successfully"));
     }

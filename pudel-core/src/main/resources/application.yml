@@ -45,6 +45,13 @@ springdoc:
     operations-sorter: alpha
     doc-expansion: none
     filter: true
+    # READ-ONLY DOCS. These endpoints exist for route lookup only. An empty
+    # supported-submit-methods list removes every "Execute" button from Swagger UI,
+    # so the spec cannot be used to send requests at the production database.
+    # Do not add methods here. Use curl against a non-production instance instead.
+    supported-submit-methods: []
+    try-it-out-enabled: false
+    persist-authorization: false
   show-actuator: false
   default-produces-media-type: application/json
 
@@ -101,6 +108,12 @@ pudel:
     max-keys-per-user: ${DPOP_MAX_KEYS_PER_USER:10}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost}
+    # How long a browser may cache the CORS preflight response, in seconds.
+    # Deliberately short (default 600, was 3600). A cached preflight is replayed
+    # without contacting the server, so one bad response -- from a bad deploy or a
+    # misconfigured reverse proxy -- otherwise persists for the full window and no
+    # amount of refreshing clears it. Lower this to 0 while debugging CORS.
+    max-age-seconds: ${CORS_MAX_AGE_SECONDS:600}
 
   # ===========================================
   # Swagger / OpenAPI Access Protection
@@ -119,6 +132,11 @@ pudel:
     # Initial owner Discord user ID - only used when no admins exist in database
     initial-owner: ${PUDEL_ADMIN_INITIAL_OWNER:}
     owner-public-key-path: ${PUDEL_ADMIN_OWNER_PUBLIC_KEY_PATH:keys/owner_pb.key}
+
+  session:
+    cookie-name: ${SESSION_NAME:pudel_session}
+    cookie-secret: ${SESSION_KEY:}
+    cookie-key-path: ${SESSION_KEYFILE:cookie.key}
 
   # ===========================================
   # Subscription Tiers Configuration

@@ -14,7 +14,7 @@
  */
 package group.worldstandard.pudel.core.config.springboot;
 
-import group.worldstandard.pudel.core.service.DPoPService;
+import group.worldstandard.pudel.core.session.SessionAuthenticationService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,50 +30,28 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 
 /**
- * JWT authentication filter that validates tokens on every request.
- * Supports both standard Bearer tokens and DPoP-bound tokens.
+ * Cookie-only authentication for Pudel's SPA requests.
  * <p>
- * For DPoP-bound tokens (BFF-style):
- * <ul>
- *   <li>Client must include DPoP header with a signed proof</li>
- *   <li>The proof must be bound to the access token via 'ath' claim</li>
- *   <li>The token's thumbprint binding must match the proof's JWK</li>
- *   <li>In BFF style, the backend holds the private key and signs proofs for the frontend</li>
- * </ul>
+ * Authorization headers are rejected by design. The encrypted HttpOnly cookie resolves a
+ * database Ed25519 key; the BFF then signs and validates a fresh internal DPoP proof for
+ * every protected request and exposes only the Discord user id to Spring Security.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
-    private static final String DPOP_HEADER = "DPoP";
-    private static final String DPOP_KEY_ID_HEADER = "X-DPoP-Key-Id";
-    private static final String AUTH_SCHEME_DPOP = "DPoP";
-    private static final String AUTH_SCHEME_BEARER = "Bearer";
+    public static final String SESSION_KEY_ID_ATTRIBUTE =
+            SessionAuthenticationService.KEY_ID_ATTRIBUTE;
 
-    private final JwtUtil jwtUtil;
-    private final DPoPService dpopService;
+    private final SessionAuthenticationService sessionAuthenticationService;
 
-    public JwtAuthenticationFilter(JwtUtil jwtUtil, DPoPService dpopService) {
-        this.jwtUtil = jwtUtil;
-        this.dpopService = dpopService;
+    public JwtAuthenticationFilter(SessionAuthenticationService sessionAuthenticationService) {
+        this.sessionAuthenticationService = sessionAuthenticationService;
     }
 
-    /**
-     * Performs filtering logic on incoming HTTP requests to authenticate users based on JWT tokens.
-     * This method checks for Authorization headers containing either Bearer or DPoP schemes.
-     * If a token is present and valid, it sets up the Spring Security context with the authenticated user.
-     * For DPoP tokens, additional validation is performed using the DPoP proof header.
-     *
-     * @param request the HTTP servlet request
-     * @param response the HTTP servlet response
-     * @param filterChain the filter chain to continue processing the request
-     * @throws ServletException if a servlet error occurs during filtering
-     * @throws IOException if an I/O error occurs during filtering
-     */
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
@@ -81,114 +59,53 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String authHeader = request.getHeader("Authorization");
-        String dpopProof = request.getHeader(DPOP_HEADER);
-
-        if (authHeader != null) {
-            String token = null;
-            boolean isDPoP = false;
-
-            // Determine token type and extract token
-            if (authHeader.startsWith(AUTH_SCHEME_DPOP + " ")) {
-                token = authHeader.substring(AUTH_SCHEME_DPOP.length() + 1);
-                isDPoP = true;
-            } else if (authHeader.startsWith(AUTH_SCHEME_BEARER + " ")) {
-                token = authHeader.substring(AUTH_SCHEME_BEARER.length() + 1);
-                // Check if it's a DPoP-bound token being used as Bearer (error)
-                if (jwtUtil.isDPoPBoundToken(token)) {
-                    log.warn("DPoP-bound token used with Bearer scheme - use DPoP scheme instead");
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setHeader("WWW-Authenticate", "DPoP error=\"use_dpop_nonce\", error_description=\"Token is DPoP-bound\"");
-                    response.getWriter().write("{\"error\":\"invalid_token\",\"error_description\":\"DPoP-bound token must use DPoP scheme\"}");
-                    return;
-                }
-            }
-
-            if (token != null && jwtUtil.validateToken(token)) {
-                // For DPoP tokens, validate the proof
-                if (isDPoP) {
-                    if (dpopProof == null) {
-                        log.warn("DPoP scheme used but no DPoP proof header");
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\"");
-                        response.getWriter().write("{\"error\":\"invalid_dpop_proof\",\"error_description\":\"Missing DPoP proof\"}");
-                        return;
-                    }
-
-                    // Build the request URI
-                    String httpUri = request.getRequestURL().toString();
-                    String httpMethod = request.getMethod();
-                    
-                    // Get DPoP key ID from header (database-backed keys)
-                    String dpopKeyId = request.getHeader(DPOP_KEY_ID_HEADER);
-
-                    // Validate DPoP proof using database-backed key
-                    DPoPService.DPoPValidationResult proofResult =
-                            dpopService.validateProofForResource(dpopProof, httpMethod, httpUri, token, dpopKeyId);
-
-                    if (!proofResult.valid()) {
-                        log.warn("DPoP proof validation failed: {}", proofResult.error());
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\", error_description=\"Invalid DPoP proof\"");
-                        response.getWriter().write("{\"error\":\"invalid_dpop_proof\",\"error_description\":\"" + proofResult.error() + "\"}");
-                        return;
-                    }
-
-                    // Verify token is bound to this thumbprint
-                    String tokenThumbprint = jwtUtil.getDPoPThumbprint(token);
-                    if (tokenThumbprint != null && !tokenThumbprint.equals(proofResult.thumbprint())) {
-                        log.warn("DPoP thumbprint mismatch: token bound to {}, proof from {}",
-                                "..."+ tokenThumbprint.substring(tokenThumbprint.length() - 3), "..."+ proofResult.thumbprint().substring(proofResult.thumbprint().length() - 3));
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\", error_description=\"Token not bound to this key\"");
-                        response.getWriter().write("{\"error\":\"invalid_dpop_proof\",\"error_description\":\"Token not bound to this key\"}");
-                        return;
-                    }
-
-                    log.debug("DPoP proof validated successfully for user");
-                }
-
-                String userId = jwtUtil.getUserIdFromToken(token);
-                if (userId != null) {
-                    // Add DPoP-verified authority if using DPoP
-                    List<SimpleGrantedAuthority> authorities = isDPoP
-                            ? List.of(new SimpleGrantedAuthority("DPOP_VERIFIED"))
-                            : Collections.emptyList();
-
-                    // Create authentication token
-                    Authentication auth = new UsernamePasswordAuthenticationToken(
-                            userId, null, authorities
-                    );
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                    log.debug("Set authentication for user: {} (DPoP: {})", userId, isDPoP);
-                }
-            }
+        if (authHeader != null && !authHeader.isBlank()) {
+            reject(response, "invalid_token",
+                    "Authorization headers are not accepted; use the encrypted session cookie");
+            return;
         }
+
+        SessionAuthenticationService.SessionAuthenticationResult result =
+                sessionAuthenticationService.authenticate(request);
+        if (!result.authenticated()) {
+            log.debug("Cookie session rejected on {}: {}", request.getRequestURI(), result.error());
+            reject(response, "invalid_session", result.error());
+            return;
+        }
+
+        request.setAttribute(SESSION_KEY_ID_ATTRIBUTE, result.session().getKeyId());
+        List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("DPOP_VERIFIED"));
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                result.userId(), null, authorities);
+        SecurityContextHolder.getContext().setAuthentication(authentication);
 
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * Determines whether the given request should bypass JWT authentication filtering.
-     * Requests to specific API endpoints related to authentication, bot interactions,
-     * plugin management, and server-sent events are exempted from authentication.
-     *
-     * @param request the HTTP servlet request to evaluate
-     * @return true if the request should not be filtered (i.e., does not require authentication),
-     *         false otherwise
-     */
+    private void reject(HttpServletResponse response, String error, String description) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        String safeDescription = description == null ? "" : description.replace("\"", "'");
+        response.getWriter().write(
+                "{\"error\":\"" + error + "\",\"error_description\":\"" + safeDescription + "\"}");
+    }
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
 
-        return path.startsWith("/api/auth/discord/")
-                || path.equals("/api/auth/refresh") // BFF refresh validates internally
+        return path.startsWith("/api/session/")
+                || path.startsWith("/api/auth/discord/")
+                || path.equals("/api/auth/refresh")
+                || path.equals("/api/auth/logout")
                 || path.startsWith("/api/bot/")
-                || path.equals("/api/admin/logs/stream") // SSE uses query param token auth
+                || path.startsWith("/ws/admin/")
+                || path.equals("/api/admin/logs/stream")
                 || (path.equals("/api/plugins") && "GET".equals(request.getMethod()))
                 || (path.equals("/api/plugins/installed") && "GET".equals(request.getMethod()))
                 || (path.matches("/api/plugins/installed/[^/]+") && "GET".equals(request.getMethod()))
                 || (path.equals("/api/plugins/enabled") && "GET".equals(request.getMethod()))
                 || (path.matches("/api/plugins/[^/]+") && "GET".equals(request.getMethod()))
-                || path.startsWith("/api/dpop/"); // DPoP endpoints don't require auth
+                || path.startsWith("/api/dpop/");
     }
 }

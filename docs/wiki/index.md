@@ -35,7 +35,6 @@ Welcome to the official Pudel documentation! Pudel is an AI-powered Discord bot 
 - **Attachment support** — Read text files, reply with images/videos
 
 ### 🔧 Key Architecture Changes
-- `pudel-model` module deprecated (marked for removal)
 - New `PassiveContextProcessor` with `ConcurrentLinkedQueue` + batch processing
 - New `DialogueHistoryManager` with `respond_to` and `attachment_urls` columns
 - New `EntityExtractor` for users, channels, roles, emojis, URLs, attachments
@@ -47,7 +46,7 @@ Welcome to the official Pudel documentation! Pudel is an AI-powered Discord bot 
 - `PudelPlugin` interface is **deprecated**
 - `SimplePlugin` class is **deprecated**
 - Manual `syncCommands()` no longer required
-- `pudel-model` module deprecated — use built-in brain instead
+- The brain (Ollama client, analyzer, agent) now lives inside `pudel-core`; the separate `pudel-model` module was removed
 
 ---
 
@@ -98,7 +97,7 @@ public class MyPlugin {
 
 ### 🛡️ Enterprise Ready
 - Per-guild PostgreSQL schemas
-- RSA JWT authentication
+- Ed25519-signed tokens behind a cookie-only BFF session
 - REST API for integrations
 - Docker deployment with hot-reload
 
