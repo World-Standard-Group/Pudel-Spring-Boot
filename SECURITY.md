@@ -2,8 +2,8 @@
 
 **Project**: Pudel Discord Bot  
 **Maintainer**: World Standard Group  
-**Version**: v2.4.0
-**Last Updated**: July 16, 2026
+**Version**: v2.5.0
+**Last Updated**: October 02, 2026
 
 ---
 
@@ -13,8 +13,8 @@ Security updates are provided for the following versions:
 
 | Version  | Supported      | Until          |
 |----------|----------------|----------------|
-| 2.4.x    | Active support | 2.5.0 Released |
-| <= 2.3.2 | End of Life    | Not supported  |
+| 2.5.x    | Active support | 2.6.0 Released |
+| <= 2.4.x | End of Life    | Not supported  |
 
 We strongly recommend running the latest release at all times.
 
@@ -182,13 +182,13 @@ When running with Docker:
 
 Pudel is built on the following core dependencies:
 
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| Spring Boot | 4.1.0   | Application framework |
-| JDA | 6.5.0   | Discord Gateway + REST |
-| Jackson | 3.2.1   | JSON serialization |
-| SLF4J | 2.0.18  | Logging |
-| PostgreSQL + pgvector | —       | Database + vector embeddings |
+| Dependency            | Version   | Purpose                      |
+|-----------------------|-----------|------------------------------|
+| Spring Boot           | 4.2.0-M2  | Application framework        |
+| JDA                   | 6.7.0     | Discord Gateway + REST       |
+| Jackson               | 3.2.3     | JSON serialization           |
+| SLF4J                 | 2.0.18    | Logging                      |
+| PostgreSQL + pgvector | 18-latest | Database + vector embeddings |
 
 We actively monitor dependencies for known vulnerabilities (CVEs). If you discover a vulnerable transitive dependency, please report it using the process above.
 

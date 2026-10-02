@@ -163,8 +163,8 @@ DB_PASSWORD=secure_password
 
 ```bash
 mkdir -p keys
-openssl genrsa -out keys/jwt_private.key 2048
-openssl rsa -in keys/jwt_private.key -pubout -out keys/jwt_public.key
+openssl genpkey -algorithm ED25519 -out keys/pv.key
+openssl pkey -in keys/pv.key -pubout -out keys/pb.key
 ```
 
 ### 3. Start with Docker Compose
@@ -231,7 +231,7 @@ After=network.target postgresql.service
 Type=simple
 User=pudel
 WorkingDirectory=/opt/pudel
-ExecStart=/usr/bin/java -Xmx2g -jar pudel-core-2.4.0.jar --spring.profiles.active=production
+ExecStart=/usr/bin/java -Xmx2g -jar pudel-core-2.5.0.jar --spring.profiles.active=production
 Restart=always
 RestartSec=10
 

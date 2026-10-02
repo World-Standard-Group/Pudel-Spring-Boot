@@ -35,19 +35,19 @@ DISCORD_CLIENT_ID=your_client_id_here
 DISCORD_CLIENT_SECRET=your_client_secret_here
 ```
 
-### 2.5. Generate RSA Keys for JWT Authentication
+### 2.5. Generate Keys for JWT Authentication
 
-Generate RSA key pair for JWT token signing:
+Generate EDDSA key pair for JWT token signing:
 
 ```bash
 # Navigate to the keys directory
 cd keys
 
-# Generate RSA private key (PKCS#8 format)
-openssl genpkey -algorithm RSA -out private.key -pkeyopt rsa_keygen_bits:2048
+# Generate private key (PKCS#8 format)
+openssl genpkey -algorithm ED25519 -out private.key
 
 # Extract public key
-openssl rsa -pubout -in private.key -out public.key
+openssl pkey -in private.key -pubout -out public.key
 
 # Set proper permissions
 chmod 600 private.key
@@ -113,8 +113,8 @@ docker compose exec ollama ollama pull qwen3-embedding:8b
 ### Security Configuration
 | Variable | Default | Description                             |
 |----------|---------|-----------------------------------------|
-| `JWT_PRIVATE_KEY_PATH` | `/app/keys/private.key` | Path to RSA private key (mounted via volume) |
-| `JWT_PUBLIC_KEY_PATH` | `/app/keys/public.key` | Path to RSA public key (mounted via volume) |
+| `JWT_PRIVATE_KEY_PATH` | `/app/keys/private.key` | Path to EDDSA private key (mounted via volume) |
+| `JWT_PUBLIC_KEY_PATH` | `/app/keys/public.key` | Path to EDDSA public key (mounted via volume) |
 | `JWT_EXPIRATION` | `604800000` | JWT expiration in milliseconds (7 days) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins            |
 
@@ -187,7 +187,7 @@ git pull origin main && docker compose build pudel && docker compose up -d pudel
 | PostgreSQL data | `postgres_data` Docker volume | ✅ Persists across rebuilds |
 | Ollama models | `ollama_data` Docker volume | ✅ Persists across rebuilds |
 | Plugins (JARs) | `./plugins` bind mount | ✅ Lives on host |
-| RSA keys | `./keys` bind mount | ✅ Lives on host (read-only) |
+| Secrets | `./keys` bind mount | ✅ Lives on host (read-only) |
 | Application logs | `pudel_logs` Docker volume | ✅ Persists across rebuilds |
 
 > **Tip:** `docker compose down` stops containers but preserves volumes. Only `docker compose down -v` deletes volumes — avoid it unless you want a full reset.
@@ -266,7 +266,7 @@ Make sure you have [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter
 | `ollama_data` | `/root/.ollama` | Downloaded AI models |
 | `pudel_logs` | `/app/logs` | Application logs |
 | `./plugins` (bind mount) | `/app/plugins` | Bot plugins (hot-reloadable) |
-| `./keys` (bind mount) | `/app/keys` | RSA keys for JWT (read-only) |
+| `./keys` (bind mount) | `/app/keys` | EDDSA keys for JWT (read-only) |
 
 > **Important:** All persistent data lives in Docker volumes or bind mounts on the host. Rebuilding the Pudel image (`docker compose build pudel`) only replaces the application code — your data is safe.
 
@@ -422,7 +422,7 @@ The production `docker compose.yml` uses a bind mount for plugins to allow runti
 
 ## Security Recommendations
 
-1. **Generate strong RSA keys** - Use at least 2048-bit RSA keys for JWT signing
+1. **Generate strong EDDSA keys** - Use EDDSA keys for JWT signing
 2. **Protect private key** - Ensure `private.key` has strict permissions (600) and never commit to version control
 3. **Use strong database password**
 4. **Limit CORS_ALLOWED_ORIGINS** to your actual domains

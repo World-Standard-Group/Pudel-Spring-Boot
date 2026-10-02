@@ -395,7 +395,7 @@ Are **NOT considered derivative works** of Pudel. This allows proprietary and co
 
 ## Status
 
-**Version**: 2.4.0 (Stable)
+**Version**: 2.5.0 (Stable)
 
 **Note**: Only changes or bug fixes originating from the API qualify for a semantic version update.
 
