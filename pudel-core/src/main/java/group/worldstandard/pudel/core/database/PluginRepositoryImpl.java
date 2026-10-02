@@ -82,6 +82,11 @@ public class PluginRepositoryImpl<T> implements PluginRepository<T> {
                 columnName = toSnakeCase(field.getName());
             }
 
+            // Identifiers cannot be bound as PreparedStatement parameters, so every
+            // column name is validated here — at the single point where the mapping is
+            // built — before it can reach any interpolated SQL in insert()/update().
+            validateColumn(columnName);
+
             fieldToColumn.put(field.getName(), columnName);
             columnToField.put(columnName, field);
         }
@@ -144,6 +149,15 @@ public class PluginRepositoryImpl<T> implements PluginRepository<T> {
         returning.add("updated_at");
         returning.addAll(defaultedColumns);
 
+        // Re-validate immediately before interpolation. Column names originate from
+        // @Column(name = ...) annotations rather than user input, but an annotation is
+        // still third-party code: a plugin author (or a compromised build) could name a
+        // column "id); DROP TABLE x --". Validating at the point of use keeps the
+        // guarantee local to the query instead of relying on a distant call site.
+        columns.forEach(this::validateColumn);
+        returning.forEach(this::validateColumn);
+        validateQualifiedTableName(fullTableName);
+
         String sql = "INSERT INTO " + fullTableName + " (" + String.join(", ", columns) + ") " +
                 "VALUES (" + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ") " +
                 "RETURNING " + String.join(", ", returning);
@@ -200,6 +214,8 @@ public class PluginRepositoryImpl<T> implements PluginRepository<T> {
         }
 
         values.add(id); // For WHERE clause
+
+        validateQualifiedTableName(fullTableName);
 
         String sql = "UPDATE " + fullTableName + " SET " + String.join(", ", setClauses) + " WHERE id = ?";
         jdbcTemplate.update(sql, values.toArray());
@@ -458,6 +474,25 @@ public class PluginRepositoryImpl<T> implements PluginRepository<T> {
     private void validateColumn(String column) {
         if (column == null || !column.matches("^[a-z][a-z0-9_]*$")) {
             throw new IllegalArgumentException("Invalid column name: " + column);
+        }
+    }
+
+    /**
+     * Validates a schema-qualified table name before it is interpolated into SQL.
+     * <p>
+     * Accepts the {@code schema.table} form produced by
+     * {@link PluginDatabaseManagerImpl#getFullTableName(String)}, optionally quoted.
+     * Identifiers cannot be parameterised, so they are checked against a strict
+     * allowlist instead of being escaped.
+     *
+     * @param qualifiedName the schema-qualified table name to validate
+     * @throws IllegalArgumentException if the name is null or contains anything
+     *                                  other than the allowed identifier characters
+     */
+    private void validateQualifiedTableName(String qualifiedName) {
+        if (qualifiedName == null
+                || !qualifiedName.matches("^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$")) {
+            throw new IllegalArgumentException("Invalid table name: " + qualifiedName);
         }
     }
 }

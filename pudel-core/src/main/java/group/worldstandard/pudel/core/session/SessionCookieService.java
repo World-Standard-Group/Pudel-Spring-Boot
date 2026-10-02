@@ -90,7 +90,7 @@ public class SessionCookieService {
                 cookieName, maxAgeSeconds);
     }
 
-    private static byte[] loadOrCreateKey(String configuredSecret, String keyPath) {
+    private byte[] loadOrCreateKey(String configuredSecret, String keyPath) {
         try {
             if (configuredSecret != null && !configuredSecret.isBlank()) {
                 return sha256(configuredSecret.getBytes(StandardCharsets.UTF_8));
@@ -106,7 +106,7 @@ public class SessionCookieService {
             }
 
             byte[] key = new byte[32];
-            new SecureRandom().nextBytes(key);
+            random.nextBytes(key);
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
