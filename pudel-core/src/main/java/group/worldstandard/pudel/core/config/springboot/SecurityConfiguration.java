@@ -28,7 +28,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -43,6 +42,18 @@ public class SecurityConfiguration {
 
     @Value("${pudel.cors.allowed-origins}")
     private List<String> allowedOrigins;
+
+    /**
+     * How long a browser may cache the CORS preflight result, in seconds.
+     * <p>
+     * Kept short on purpose. A preflight response that omits or narrows
+     * {@code Access-Control-Allow-Methods} is replayed from the browser cache for this
+     * whole window, so a single bad response looks like a persistent outage and no
+     * amount of refreshing clears it. A small value bounds the blast radius of a bad
+     * deploy or a misconfigured reverse proxy to minutes rather than an hour.
+     */
+    @Value("${pudel.cors.max-age-seconds:600}")
+    private long maxAgeSeconds;
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final SwaggerAccessFilter swaggerAccessFilter;
@@ -133,6 +144,17 @@ public class SecurityConfiguration {
      * Creates and configures a CORS configuration source that defines cross-origin resource sharing policies.
      * The configuration allows specified origins, common HTTP methods, required headers for authorization,
      * exposes specific response headers, enables credentials, and sets a max age for preflight requests.
+     * <p>
+     * {@code Authorization}, {@code DPoP}, and {@code X-DPoP-Key-Id} are listed as
+     * <em>allowed request headers</em> purely so that preflight succeeds. Listing a
+     * header here does not grant access: {@link JwtAuthenticationFilter} still rejects
+     * every request that actually carries an {@code Authorization} header with
+     * {@code 401 invalid_token}. The distinction matters because a preflight naming a
+     * header that is absent from this list is answered with a bare {@code 403} carrying
+     * no CORS headers at all, which the browser reports as an opaque, unrecoverable CORS
+     * failure blaming {@code Access-Control-Allow-Methods} — even on public endpoints
+     * that require no authentication. Letting the preflight pass and the real request
+     * fail turns that undiagnosable error into an ordinary, readable {@code 401}.
      *
      * @return a CorsConfigurationSource instance with preconfigured CORS settings applied to all paths
      */
@@ -141,10 +163,18 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Content-Type"));
+        configuration.setAllowedHeaders(List.of(
+                "Content-Type",
+                "Authorization",
+                "DPoP",
+                "X-DPoP-Key-Id",
+                "Accept",
+                "Origin",
+                "X-Requested-With"
+        ));
         configuration.setExposedHeaders(List.of("WWW-Authenticate"));
         configuration.setAllowCredentials(true);
-        configuration.setMaxAge(3600L);
+        configuration.setMaxAge(maxAgeSeconds);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

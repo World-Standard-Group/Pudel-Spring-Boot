@@ -148,6 +148,10 @@ services:
 
       # CORS
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost}
+      # Preflight cache lifetime in seconds. Short by default: a cached preflight
+      # is replayed without reaching the server, so one bad response otherwise
+      # sticks for the whole window. Set to 0 while debugging CORS issues.
+      CORS_MAX_AGE_SECONDS: ${CORS_MAX_AGE_SECONDS:-600}
 
       # Ollama
       OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
